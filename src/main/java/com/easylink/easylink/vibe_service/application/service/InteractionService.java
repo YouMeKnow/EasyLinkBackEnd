@@ -7,6 +7,7 @@ import com.easylink.easylink.vibe_service.application.mapper.InteractionDtoMappe
 import com.easylink.easylink.vibe_service.application.mapper.VibeDtoMapper;
 import com.easylink.easylink.vibe_service.application.port.in.interaction.*;
 import com.easylink.easylink.vibe_service.domain.interaction.Interaction;
+import com.easylink.easylink.vibe_service.domain.interaction.InteractionType;
 import com.easylink.easylink.vibe_service.domain.model.EarlyAccessRequest;
 import com.easylink.easylink.vibe_service.domain.model.Vibe;
 import com.easylink.easylink.vibe_service.infrastructure.repository.JpaEarlyAccessRequestAdapter;
@@ -17,7 +18,9 @@ import com.easylink.easylink.vibe_service.web.dto.InteractionResponse;
 import com.easylink.easylink.vibe_service.web.mapper.InteractionResponseMapper;
 import lombok.RequiredArgsConstructor;
 import org.modelmapper.ModelMapper;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.List;
@@ -35,31 +38,75 @@ public class InteractionService implements CreateInteractionUseCase, DeactivateI
     private final ModelMapper modelMapper;
 
     @Override
-    public InteractionResponse createInteraction(CreateInteractionRequest createInteractionRequest) {
+    public InteractionResponse createInteraction(CreateInteractionRequest req) {
+
+        Vibe targetVibe = springDataVibeRepository
+                .findById(req.getTargetVibeId())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Target vibe not found"));
+
+        Vibe myVibe = springDataVibeRepository
+                .findById(req.getMyVibeId())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Subscriber vibe not found"));
+
+        if (targetVibe.getId().equals(myVibe.getId())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "You cannot subscribe to your own vibe");
+        }
+
+        InteractionType type = req.getInteractionType();
+        if (type == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Interaction type is required");
+        }
+
+        // SUBSCRIBE = upsert (one row per pair)
+        if (type == InteractionType.SUBSCRIBE) {
+            Interaction sub = interactionRepositoryAdapter
+                    .findAnySubscription(myVibe, targetVibe)
+                    .orElseGet(() -> {
+                        Interaction i = new Interaction();
+                        i.setTargetVibe(targetVibe);
+                        i.setSubscriberVibe(myVibe);
+                        i.setInteractionType(InteractionType.SUBSCRIBE);
+                        return i;
+                    });
+
+            sub.setAnonymous(req.isAnonymous());
+            sub.setUserEmail(req.getUserEmail());
+
+            sub.setActive(true);
+            Interaction saved = interactionRepositoryAdapter.save(sub);
+
+            return InteractionResponseMapper.toInteractionResponse(
+                    InteractionDtoMapper.toInteractionDto(saved)
+            );
+        }
+
+        // UNSUBSCRIBE = toggle active=false
+        if (type == InteractionType.UNSUBSCRIBE) {
+            Interaction sub = interactionRepositoryAdapter
+                    .findAnySubscription(myVibe, targetVibe)
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "Subscription not found"));
+
+            sub.setActive(false);
+            Interaction saved = interactionRepositoryAdapter.save(sub);
+
+            return InteractionResponseMapper.toInteractionResponse(
+                    InteractionDtoMapper.toInteractionDto(saved)
+            );
+        }
+
         Interaction interaction = new Interaction();
-        Optional<Vibe> vibeOptional = springDataVibeRepository.findById(createInteractionRequest.getTargetVibeId());
+        interaction.setTargetVibe(targetVibe);
+        interaction.setSubscriberVibe(myVibe);
+        interaction.setAnonymous(req.isAnonymous());
+        interaction.setUserEmail(req.getUserEmail());
+        interaction.setInteractionType(type);
+        interaction.setActive(req.isActive());
 
+        Interaction saved = interactionRepositoryAdapter.save(interaction);
 
-        if(vibeOptional.isPresent()){
-            interaction.setTargetVibe(vibeOptional.get());
-        }else{
-            throw new RuntimeException("The target Vibe is not found!");
-        }
-
-        Optional<Vibe> myVibeOptional = springDataVibeRepository.findById(createInteractionRequest.getMyVibeId());
-
-        if(myVibeOptional.isPresent()){
-            interaction.setSubscriberVibe(myVibeOptional.get());
-        }else{
-            throw new RuntimeException("The subscriber Vibe is not found!");
-        }
-
-        interaction.setAnonymous(createInteractionRequest.isAnonymous());
-        interaction.setActive(createInteractionRequest.isActive());
-        interaction.setInteractionType(createInteractionRequest.getInteractionType());
-        interactionRepositoryAdapter.save(interaction);
-
-        return InteractionResponseMapper.toInteractionResponse(InteractionDtoMapper.toInteractionDto(interaction));
+        return InteractionResponseMapper.toInteractionResponse(
+                InteractionDtoMapper.toInteractionDto(saved)
+        );
     }
 
     public List<VibeDto> getFollowing(UUID vibeId){

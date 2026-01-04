@@ -24,7 +24,7 @@ public class EmailVerificationService {
     private final JavaMailSender mailSender;
 
     @Value("${app.verification.base-url}")
-    private String baseUrl; // for example: https://api.youmeknow.com
+    private String baseUrl; // https://youmeknow.com
 
     @Value("${app.mail.from:${SPRING_MAIL_USERNAME:}}")
     private String fromAddress; // by default = SMTP username
