@@ -11,8 +11,12 @@ import java.util.UUID;
 public interface SpringDataVibeRepository extends JpaRepository<Vibe, UUID> {
     @EntityGraph(attributePaths = "fields")
     List<Vibe> findAllByVibeAccountId(UUID id);
+    @EntityGraph(attributePaths = "fields")
+    List<Vibe> findAllByVibeAccountIdAndDeletedAtIsNull(UUID id);
     List<Vibe> findAllById(UUID id);
-    Optional<Vibe> findById(UUID id);
-    Optional<Vibe> findByPublicCodeAndVisibleTrue(String publicCode);
     long countByVibeAccountId(UUID id);
+    long countByVibeAccountIdAndDeletedAtIsNull(UUID id);
+    List<Vibe> findAllByDeletedAtIsNull();
+    Optional<Vibe> findByPublicCodeAndVisibleTrueAndDeletedAtIsNull(String publicCode);
+    Optional<Vibe> findByIdAndDeletedAtIsNull(UUID id);
 }

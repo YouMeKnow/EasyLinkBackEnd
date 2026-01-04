@@ -21,4 +21,6 @@ public class VibeDto {
     private String publicCode;
     private String photo;
     private List<VibeFieldDTO> fieldsDTO;
+    private Long subscriberCount;
+    private List<MiniVibeDto> subscriberVibes;
 }

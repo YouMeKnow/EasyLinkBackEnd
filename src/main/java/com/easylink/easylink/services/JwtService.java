@@ -18,7 +18,7 @@ import java.util.Date;
 
 @Service
 public class JwtService {
-    
+
     @Value("${jwt.private:}")
     private Resource privateRes;
 
@@ -48,11 +48,11 @@ public class JwtService {
 
         if (pemBytes == null) {
             throw new IllegalStateException(
-                "JWT private key not found. Provide one of:\n" +
-                " - env JWT_PRIVATE=file:/run/secrets/private.pem (preferred)\n" +
-                " - env JWT_PRIVATE=classpath:/keys/private.pem (dev)\n" +
-                " - env JWT_PRIVATE_PATH=/run/secrets/private.pem (fallback)\n" +
-                "Or add /keys/private.pem to classpath."
+                    "JWT private key not found. Provide one of:\n" +
+                            " - env JWT_PRIVATE=file:/run/secrets/private.pem (preferred)\n" +
+                            " - env JWT_PRIVATE=classpath:/keys/private.pem (dev)\n" +
+                            " - env JWT_PRIVATE_PATH=/run/secrets/private.pem (fallback)\n" +
+                            "Or add /keys/private.pem to classpath."
             );
         }
 

@@ -13,7 +13,7 @@ public class Person {
     private String firstName;
     private String lastName;
 
-    @OneToMany(mappedBy = "number",cascade = CascadeType.ALL)
+    @OneToMany(mappedBy = "person",cascade = CascadeType.ALL)
     private List<PhoneNumber> phoneNumber;
 
     private String email;
@@ -23,7 +23,7 @@ public class Person {
 
     public void setPassword(String password) { this.password = password; }
 
-    @OneToMany(mappedBy = "id", cascade = CascadeType.ALL)
+    @OneToMany(mappedBy = "person", cascade = CascadeType.ALL)
     private List<BusinessCard> businessCards;
 
     public String getFirstName() {

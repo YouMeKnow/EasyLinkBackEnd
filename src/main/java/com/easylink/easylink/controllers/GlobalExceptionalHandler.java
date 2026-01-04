@@ -60,29 +60,27 @@ public class GlobalExceptionalHandler {
     }
 
     @ExceptionHandler(IllegalStateException.class)
-    private ResponseEntity<String> handleIllegalState(IllegalStateException ex) {
-        HttpStatus status = HttpStatus.CONFLICT; // 409
-
-        return ResponseEntity.status(status).body(ex.getMessage());
+    public ResponseEntity<Map<String, Object>> handleIllegalState(IllegalStateException ex) {
+        return buildErrorResponse(HttpStatus.CONFLICT, "Conflict", ex.getMessage());
     }
 
     @ExceptionHandler(DuplicateAccountException.class)
-    private ResponseEntity<String> handleDuplicateAccount(DuplicateAccountException ex) {
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(ex.getMessage());
+    public ResponseEntity<Map<String, Object>> handleDuplicateAccount(DuplicateAccountException ex) {
+        return buildErrorResponse(HttpStatus.CONFLICT, "Conflict", ex.getMessage());
     }
 
     @ExceptionHandler(RateLimitExceededException.class)
-    public ResponseEntity<String> handleLimit(RuntimeException ex){
-        return ResponseEntity.status(429).body(ex.getMessage());
+    public ResponseEntity<Map<String, Object>> handleLimit(RateLimitExceededException ex) {
+        return buildErrorResponse(HttpStatus.TOO_MANY_REQUESTS, "Rate limit", ex.getMessage());
     }
 
     @ExceptionHandler(OfferLimitExceededException.class)
-    public ResponseEntity<String> handleOfferLimit(OfferLimitExceededException ex){
-        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(ex.getMessage());
+    public ResponseEntity<Map<String, Object>> handleOfferLimit(OfferLimitExceededException ex) {
+        return buildErrorResponse(HttpStatus.TOO_MANY_REQUESTS, "Offer limit", ex.getMessage());
     }
 
     @ExceptionHandler(VibeLimitExceededException.class)
-    public ResponseEntity<String> handleVibeLimit(VibeLimitExceededException ex){
-        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(ex.getMessage());
+    public ResponseEntity<Map<String, Object>> handleVibeLimit(VibeLimitExceededException ex) {
+        return buildErrorResponse(HttpStatus.TOO_MANY_REQUESTS, "Vibe limit", ex.getMessage());
     }
 }

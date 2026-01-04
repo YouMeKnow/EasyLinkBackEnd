@@ -6,6 +6,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.HttpMethod;
+import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -20,7 +21,18 @@ import java.nio.charset.StandardCharsets;
 import java.security.KeyFactory;
 import java.security.interfaces.RSAPublicKey;
 import java.security.spec.X509EncodedKeySpec;
+import java.time.Duration; // ← добавили
 import java.util.Base64;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
+import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
+import org.springframework.security.oauth2.core.OAuth2TokenValidator;
+import org.springframework.security.oauth2.jwt.*;
+import java.time.Duration;
+
+import org.springframework.security.oauth2.jwt.*;
+import org.springframework.security.oauth2.jwt.JwtTimestampValidator;
+import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 
 @Configuration
 public class SecurityConfig {
@@ -48,7 +60,7 @@ public class SecurityConfig {
                                 "/profile/**", "profile/**",
                                 "/signup", "/login", "/register",
                                 "/clearviewblue.png", "/uploads/**",
-                                "/**/{path:[^\\.]*}" // forward for FrontendController
+                                "/**/{path:[^\\.]*}"
                         ).permitAll()
 
                         // ======= Public API endpoints =======
@@ -58,12 +70,8 @@ public class SecurityConfig {
                                 "/api/v3/vibes/**",
                                 "/api/v3/offers/**"
                         ).permitAll()
-                        .requestMatchers(HttpMethod.POST,
-                                "/api/v3/auth/**"
-                        ).permitAll()
-                        .requestMatchers(HttpMethod.GET,
-                                "/api/v3/auth/**"
-                        ).permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v3/auth/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v3/auth/**").permitAll()
 
                         // ======= Service / health checks =======
                         .requestMatchers("/actuator/health", "/actuator/health/**",
@@ -73,7 +81,8 @@ public class SecurityConfig {
                         // ======= All other endpoints require JWT =======
                         .anyRequest().authenticated()
                 )
-                .oauth2ResourceServer(oauth -> oauth.jwt(jwt -> jwt.jwkSetUri(jwkSetUri)));
+                // важно: пусть ресурс-сервер возьмёт наш @Bean JwtDecoder
+                .oauth2ResourceServer(oauth -> oauth.jwt(Customizer.withDefaults()));
 
         return http.build();
     }
@@ -83,11 +92,9 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         var source = new UrlBasedCorsConfigurationSource();
         var config = new CorsConfiguration();
-
         config.addAllowedOriginPattern("*");
         config.addAllowedMethod("*");
         config.addAllowedHeader("*");
-
         source.registerCorsConfiguration("/**", config);
         return source;
     }
@@ -120,5 +127,19 @@ public class SecurityConfig {
             var kf = KeyFactory.getInstance("RSA");
             return (RSAPublicKey) kf.generatePublic(spec);
         }
+    }
+
+    @Bean
+    JwtDecoder jwtDecoder(@Value("${spring.security.oauth2.resourceserver.jwt.jwk-set-uri}") String jwkSetUri) {
+        NimbusJwtDecoder decoder = NimbusJwtDecoder.withJwkSetUri(jwkSetUri).build();
+
+        // убираем clock skew: токен протухает «честно» по exp
+        OAuth2TokenValidator<Jwt> validator = new DelegatingOAuth2TokenValidator<>(
+                new JwtTimestampValidator(Duration.ZERO)   // ← ключевая строка
+                // , JwtValidators.createDefault()         // при желании добавь дефолтные проверки (issuer/aud и т.п.)
+        );
+
+        decoder.setJwtValidator(validator);
+        return decoder;
     }
 }
