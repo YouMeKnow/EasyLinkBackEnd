@@ -1,6 +1,4 @@
 spring:
-  profiles:
-    active: local   # активируем application-local.yml
   security:
     oauth2:
       resourceserver:
