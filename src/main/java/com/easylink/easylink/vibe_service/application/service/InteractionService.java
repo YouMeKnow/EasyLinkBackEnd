@@ -1,5 +1,6 @@
 package com.easylink.easylink.vibe_service.application.service;
 
+import com.easylink.easylink.services.NotificationService;
 import com.easylink.easylink.vibe_service.application.dto.EarlyAccessRequestDTO;
 import com.easylink.easylink.vibe_service.application.dto.InteractionWithOffersDTO;
 import com.easylink.easylink.vibe_service.application.dto.VibeDto;
@@ -36,6 +37,8 @@ public class InteractionService implements CreateInteractionUseCase, DeactivateI
     private final JpaInteractionRepositoryAdapter interactionRepositoryAdapter;
     private final JpaEarlyAccessRequestAdapter jpaEarlyAccessRequestAdapter;
     private final ModelMapper modelMapper;
+
+    private final NotificationService notificationService;
 
     @Override
     public InteractionResponse createInteraction(CreateInteractionRequest req) {
@@ -75,6 +78,17 @@ public class InteractionService implements CreateInteractionUseCase, DeactivateI
             sub.setActive(true);
             Interaction saved = interactionRepositoryAdapter.save(sub);
 
+            // notify owner of target vibe
+            String ownerUserId = targetVibe.getVibeAccountId().toString();
+            String subscriberName = (req.isAnonymous() ? "Someone" : myVibe.getName());
+
+            notificationService.create(
+                    ownerUserId,
+                    "SUBSCRIBE",
+                    "New subscriber",
+                    subscriberName + " subscribed to your Vibe",
+                    "/view/" + myVibe.getId()
+            );
             return InteractionResponseMapper.toInteractionResponse(
                     InteractionDtoMapper.toInteractionDto(saved)
             );
@@ -127,6 +141,55 @@ public class InteractionService implements CreateInteractionUseCase, DeactivateI
         List<InteractionWithOffersDTO>  interactions = interactionRepositoryAdapter.getAllFollowingsWithOffers(vibe.get());
 
         return interactions;
+    }
+
+    public List<VibeDto> getSubscribers(UUID vibeId) {
+
+        Vibe targetVibe = springDataVibeRepository
+                .findById(vibeId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Vibe not found"));
+
+        List<Interaction> interactions = interactionRepositoryAdapter.findActiveSubscribersByTarget(targetVibe);
+
+        return interactions.stream()
+                .map(Interaction::getSubscriberVibe)
+                .map(VibeDtoMapper::toDto)
+                .toList();
+    }
+
+    public List<VibeDto> getSubscribersOwnedBy(UUID vibeId, String requesterUserId) {
+
+        Vibe targetVibe = springDataVibeRepository
+                .findById(vibeId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Vibe not found"));
+
+        // owner check
+        if (!targetVibe.getVibeAccountId().toString().equals(requesterUserId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not your vibe");
+        }
+
+        List<Interaction> interactions = interactionRepositoryAdapter.findActiveSubscribersByTarget(targetVibe);
+
+        return interactions.stream()
+                .map(Interaction::getSubscriberVibe)
+                .map(VibeDtoMapper::toDto)
+                .toList();
+    }
+
+    public InteractionResponse createInteractionFromJwt(
+            CreateInteractionRequest req,
+            String requesterUserId
+    ) {
+        Vibe myVibe = springDataVibeRepository
+                .findById(req.getMyVibeId())
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Subscriber vibe not found"));
+
+        if (!myVibe.getVibeAccountId().toString().equals(requesterUserId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not your vibe");
+        }
+
+        return createInteraction(req);
     }
 
 

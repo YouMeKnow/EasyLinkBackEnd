@@ -70,6 +70,10 @@ public class JpaInteractionRepositoryAdapter implements InteractionRepositoryPor
                 .orElseThrow(() -> new RuntimeException("Subscription not found"));
     }
 
+    public List<Interaction> findActiveSubscribersByTarget(Vibe targetVibe) {
+        return delegateRepository.findByTargetVibeAndInteractionTypeAndActiveTrue(targetVibe, InteractionType.SUBSCRIBE);
+    }
+
     @Override
     public long countActiveByTarget(UUID targetVibeId, InteractionType type) {
         if (targetVibeId == null || type == null) return 0L;

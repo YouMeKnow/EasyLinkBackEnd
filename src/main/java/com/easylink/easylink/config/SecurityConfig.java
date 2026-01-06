@@ -62,7 +62,7 @@ public class SecurityConfig {
                                 "/clearviewblue.png", "/uploads/**",
                                 "/**/{path:[^\\.]*}"
                         ).permitAll()
-
+                        .requestMatchers("/api/notifications/**").authenticated()
                         // ======= Public API endpoints =======
                         .requestMatchers(HttpMethod.GET,
                                 "/api/v3/catalog/**",
@@ -81,7 +81,6 @@ public class SecurityConfig {
                         // ======= All other endpoints require JWT =======
                         .anyRequest().authenticated()
                 )
-                // важно: пусть ресурс-сервер возьмёт наш @Bean JwtDecoder
                 .oauth2ResourceServer(oauth -> oauth.jwt(Customizer.withDefaults()));
 
         return http.build();
