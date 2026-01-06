@@ -47,23 +47,29 @@ public class SecurityConfig {
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .authorizeHttpRequests(auth -> auth
 
-                        // ======= 🔓 React frontend routes =======
+                        // ======= 🔓 React frontend routes + static files =======
                         .requestMatchers(
                                 "/", "/index.html", "/static/**", "/assets/**",
                                 "/favicon.ico", "/email-verified",
                                 "/*.png", "/**/*.png", "/*.svg", "/**/*.svg",
                                 "/*.jpg", "/**/*.jpg", "/*.jpeg", "/**/*.jpeg",
                                 "/*.css", "/**/*.css", "/*.js", "/**/*.js",
+                                "/clearviewblue.png", "/uploads/**",
                                 "/view/**", "view/**",
                                 "/view-offer-form/**", "view-offer-form/**",
                                 "/vibes/**", "vibes/**",
                                 "/profile/**", "profile/**",
                                 "/signup", "/login", "/register",
-                                "/clearviewblue.png", "/uploads/**",
                                 "/**/{path:[^\\.]*}"
                         ).permitAll()
+
+                        // ===== SSE stream (JWT в query) =====
+                        .requestMatchers("/api/notifications/stream").permitAll()
+
+                        // ===== notifications API (JWT header) =====
                         .requestMatchers("/api/notifications/**").authenticated()
-                        // ======= Public API endpoints =======
+
+                        // ===== Public API endpoints =====
                         .requestMatchers(HttpMethod.GET,
                                 "/api/v3/catalog/**",
                                 "/api/v3/reviews/**",
@@ -73,12 +79,11 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/v3/auth/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v3/auth/**").permitAll()
 
-                        // ======= Service / health checks =======
-                        .requestMatchers("/actuator/health", "/actuator/health/**",
-                                "/.well-known/jwks.json").permitAll()
+                        // ===== health / jwks / options =====
+                        .requestMatchers("/actuator/health", "/actuator/health/**", "/.well-known/jwks.json").permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 
-                        // ======= All other endpoints require JWT =======
+                        // ===== everything else =====
                         .anyRequest().authenticated()
                 )
                 .oauth2ResourceServer(oauth -> oauth.jwt(Customizer.withDefaults()));
@@ -132,10 +137,9 @@ public class SecurityConfig {
     JwtDecoder jwtDecoder(@Value("${spring.security.oauth2.resourceserver.jwt.jwk-set-uri}") String jwkSetUri) {
         NimbusJwtDecoder decoder = NimbusJwtDecoder.withJwkSetUri(jwkSetUri).build();
 
-        // убираем clock skew: токен протухает «честно» по exp
         OAuth2TokenValidator<Jwt> validator = new DelegatingOAuth2TokenValidator<>(
-                new JwtTimestampValidator(Duration.ZERO)   // ← ключевая строка
-                // , JwtValidators.createDefault()         // при желании добавь дефолтные проверки (issuer/aud и т.п.)
+                new JwtTimestampValidator(Duration.ZERO)
+                // , JwtValidators.createDefault()
         );
 
         decoder.setJwtValidator(validator);
