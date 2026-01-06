@@ -74,4 +74,7 @@ public interface SpringDataInteraction extends JpaRepository<Interaction, UUID> 
             Vibe targetVibe,
             InteractionType interactionType
     );
+
+    List<Interaction> findByTargetVibeAndInteractionTypeAndActiveTrue(Vibe targetVibe, InteractionType type);
+
 }

@@ -1,6 +1,7 @@
 package com.easylink.easylink.vibe_service.application.service;
 
 import com.easylink.easylink.exceptions.OfferLimitExceededException;
+import com.easylink.easylink.services.NotificationService;
 import com.easylink.easylink.vibe_service.application.dto.CreateOfferCommand;
 import com.easylink.easylink.vibe_service.application.dto.OfferDto;
 import com.easylink.easylink.vibe_service.application.port.in.offer.CreateOfferUseCase;
@@ -11,6 +12,7 @@ import com.easylink.easylink.vibe_service.domain.interaction.offer.Offer;
 import com.easylink.easylink.vibe_service.domain.model.Vibe;
 import com.easylink.easylink.vibe_service.domain.model.VibeType;
 import com.easylink.easylink.vibe_service.infrastructure.exception.OfferUpdateException;
+import com.easylink.easylink.vibe_service.infrastructure.repository.JpaInteractionRepositoryAdapter;
 import com.easylink.easylink.vibe_service.infrastructure.repository.JpaOfferRepositoryAdapter;
 import lombok.RequiredArgsConstructor;
 import org.modelmapper.ModelMapper;
@@ -30,6 +32,9 @@ public class OfferServiceImpl implements CreateOfferUseCase {
     private final JpaOfferRepositoryAdapter jpaOfferRepositoryAdapter;
     private final AmplitudeService amplitudeService;
     private final OfferRateLimitPort rateLimitPort;
+
+    private final JpaInteractionRepositoryAdapter interactionRepositoryAdapter;
+    private final NotificationService notificationService;
 
     @Override
     public OfferDto create(CreateOfferCommand createOfferCommand) {
@@ -54,7 +59,23 @@ public class OfferServiceImpl implements CreateOfferUseCase {
         offer.setEndTime(createOfferCommand.getEndTime());
 
         Offer offerSaved = jpaOfferRepositoryAdapter.save(offer);
+        var subs = interactionRepositoryAdapter.findActiveSubscribersByTarget(vibe);
 
+        var notified = new java.util.HashSet<String>();
+
+        String targetVibeId = vibe.getId().toString();
+        String title = "New offer";
+        String body = vibe.getName() + " posted: " + offerSaved.getTitle();
+        String link = "/view/" + vibe.getId(); // или "/offers" если у тебя есть
+
+        for (var s : subs) {
+            String subscriberUserId = s.getSubscriberVibe().getVibeAccountId().toString();
+
+            if (subscriberUserId.equals(vibe.getVibeAccountId().toString())) continue;
+            if (!notified.add(subscriberUserId)) continue;
+
+            notificationService.create(subscriberUserId, "OFFER", title, body, link);
+        }
         amplitudeService.sendEvent(
                 vibe.getName(),
                 "Created Offer",
