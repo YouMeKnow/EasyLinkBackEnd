@@ -1,10 +1,12 @@
 package com.easylink.easylink.notifications;
 
 
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -50,5 +52,22 @@ public class NotificationSseHub {
         if (userMap == null) return;
         userMap.remove(connId);
         if (userMap.isEmpty()) clients.remove(userId);
+    }
+
+    @Scheduled(fixedRate = 25000)
+    public void heartbeat() {
+        var dead = new ArrayList<Runnable>();
+
+        clients.forEach((userId, userMap) -> {
+            userMap.forEach((connId, emitter) -> {
+                try {
+                    emitter.send(SseEmitter.event().name("ping").data("ok"));
+                } catch (IOException | IllegalStateException e) {
+                    dead.add(() -> remove(userId, connId));
+                }
+            });
+        });
+
+        dead.forEach(Runnable::run);
     }
 }

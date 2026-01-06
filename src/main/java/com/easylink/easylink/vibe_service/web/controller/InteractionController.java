@@ -103,6 +103,11 @@ public class InteractionController {
         return ResponseEntity.ok(isSubscribed);
     }
 
+    @GetMapping("/{vibeId}/subscribers")
+    public List<VibeDto> subscribersPublic(@PathVariable UUID vibeId) {
+        return interactionService.getSubscribers(vibeId);
+    }
+
 //    @RequestMapping("/followers")
 //    public ResponseEntity<VibeResponse> getFollowers(@RequestParam UUID vibeId,@AuthenticationPrincipal Jwt jwt){
 //

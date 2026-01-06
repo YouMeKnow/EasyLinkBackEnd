@@ -1,6 +1,7 @@
 package com.easylink.easylink.services;
 
 import com.easylink.easylink.dtos.NotificationDto;
+import com.easylink.easylink.dtos.UnreadDeltaDto;
 import com.easylink.easylink.entities.NotificationEntity;
 import com.easylink.easylink.notifications.NotificationSseHub;
 import com.easylink.easylink.repositories.SpringDataNotificationRepository;
@@ -69,23 +70,15 @@ public class NotificationService {
                 .read(false)
                 .createdAt(OffsetDateTime.now())
                 .build();
-        repo.save(entity);
-        hub.emitToUser(
-                userId,
-                "notification.created",
-                java.util.Map.of(
-                        "id", entity.getId().toString(),
-                        "type", entity.getType(),
-                        "title", entity.getTitle(),
-                        "body", entity.getBody(),
-                        "link", entity.getLink(),
-                        "createdAt", entity.getCreatedAt().toString(),
-                        "read", entity.isRead()
-                )
-        );
 
-        hub.emitToUser(userId, "notification.unread_changed", java.util.Map.of("delta", 1));
-        return toDto(entity);
+        repo.save(entity);
+
+        var dto = toDto(entity);
+
+        hub.emitToUser(userId, "notification.created", dto);
+        hub.emitToUser(userId, "notification.unread_changed", new UnreadDeltaDto(1));
+
+        return dto;
     }
 
     private NotificationDto toDto(NotificationEntity e) {
