@@ -3,10 +3,7 @@ package com.easylink.easylink.controllers;
 import java.util.List;
 import java.util.Map;
 
-import com.easylink.easylink.dtos.AssociativeLoginRequestDTO;
-import com.easylink.easylink.dtos.AssociativeQuestionDTO;
-import com.easylink.easylink.dtos.QuestionTemplateDTO;
-import com.easylink.easylink.dtos.SignUpDTO;
+import com.easylink.easylink.dtos.*;
 import com.easylink.easylink.services.PersonService;
 import com.easylink.easylink.services.QuestionTemplateService;
 import com.easylink.easylink.services.VibeAccountService;
@@ -50,7 +47,7 @@ public class AuthController {
     public ResponseEntity<?> checkAnswers(@RequestBody @Valid AssociativeLoginRequestDTO associativeLoginRequestDTO){
         String email = vibeAccountService.checkAnswers(associativeLoginRequestDTO);
         String token = vibeAccountService.generateToken(email);
-        return ResponseEntity.ok(Map.of("Authentication successful", token));
+        return ResponseEntity.ok(Map.of("accessToken", token));
     }
 
     @GetMapping("/question-templates")
@@ -72,5 +69,21 @@ public class AuthController {
         } else {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Invalid or expired token.");
         }
+    }
+
+    @PostMapping("/signup-password")
+    public ResponseEntity<?> signupPassword(@RequestBody @Valid PasswordSignUpDTO dto) {
+        boolean created = vibeAccountService.createPasswordAccount(dto);
+        if (created) {
+            return ResponseEntity.ok("Verification email sent successfully!");
+        }
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("The account was not created");
+    }
+
+    @PostMapping("/signin-password")
+    public ResponseEntity<?> signinPassword(@RequestBody @Valid PasswordLoginDTO dto) {
+        String email = vibeAccountService.checkPassword(dto);
+        String token = vibeAccountService.generateToken(email);
+        return ResponseEntity.ok(Map.of("token", token));
     }
 }

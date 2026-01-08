@@ -121,6 +121,44 @@ public class VibeAccountService {
         return savedAccount != null;
     }
 
+    public boolean createPasswordAccount(PasswordSignUpDTO dto) {
+        List<VibeAccount> existing = vibeAccountRepository.findByEmail(dto.getEmail());
+
+        if (existing.size() > 1) throw new DuplicateAccountException("More than one account with this email!");
+
+        if (!existing.isEmpty()) {
+            VibeAccount acc = existing.get(0);
+
+            if (Boolean.TRUE.equals(acc.getIsEmailVerified())) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "signup.account_already_exists");
+            }
+
+            if (acc.getTokenExpiry() != null && acc.getTokenExpiry().isAfter(LocalDateTime.now())) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "signup.verification_already_sent");
+            }
+
+            vibeAccountRepository.delete(acc);
+        }
+
+        VibeAccount vibeAccount = new VibeAccount();
+        vibeAccount.setCreated(LocalDateTime.now());
+        vibeAccount.setLastLogin(LocalDateTime.now());
+        vibeAccount.setEmail(dto.getEmail());
+
+        vibeAccount.setPasswordHash(passwordEncoder.encode(dto.getPassword()));
+
+        amplitudeService.sendEvent(dto.getEmail(), "User created", Map.of(
+                "source", "backend",
+                "email", dto.getEmail(),
+                "signup_method", "password"
+        ));
+
+        VibeAccount saved = vibeAccountRepository.save(vibeAccount);
+        emailVerificationService.sendVerificationEmail(saved);
+
+        return saved != null;
+    }
+
 
 
     private List<AssociativeEntry> getRandomQuestionByEmail(String email){
@@ -202,6 +240,37 @@ public class VibeAccountService {
                 throw new UserLockedException("Account is locked until " + formattedLockTime + " (" + timezone + ")");
             }
         }
+    }
+
+    public String checkPassword(PasswordLoginDTO dto) {
+        List<VibeAccount> list = vibeAccountRepository.findByEmail(dto.getEmail());
+
+        if (list.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials");
+        }
+        if (list.size() > 1) throw new DuplicateAccountException("More than one account with this email!");
+
+        VibeAccount acc = list.get(0);
+
+        if (Boolean.FALSE.equals(acc.getIsEmailVerified())) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Please verify your email before logging in.");
+        }
+
+        if (acc.getPasswordHash() == null || acc.getPasswordHash().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Password login is not enabled for this account.");
+        }
+
+        if (!passwordEncoder.matches(dto.getPassword(), acc.getPasswordHash())) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials");
+        }
+
+        amplitudeService.sendEvent(dto.getEmail(), "User login", Map.of(
+                "source", "backend",
+                "email", dto.getEmail(),
+                "login_method", "password"
+        ));
+
+        return dto.getEmail();
     }
 
 
