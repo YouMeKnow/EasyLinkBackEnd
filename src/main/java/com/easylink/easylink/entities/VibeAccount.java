@@ -3,10 +3,7 @@ package com.easylink.easylink.entities;
 import com.fasterxml.jackson.annotation.JsonAnyGetter;
 import com.fasterxml.jackson.annotation.JsonAnySetter;
 import jakarta.persistence.*;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
-import lombok.RequiredArgsConstructor;
-import lombok.Setter;
+import lombok.*;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -14,10 +11,8 @@ import java.util.List;
 import java.util.UUID;
 
 @Entity
-@Getter
-@Setter
-//@NoArgsConstructor
-@RequiredArgsConstructor
+@Getter @Setter
+@NoArgsConstructor
 public class VibeAccount {
 
     @Id
@@ -25,9 +20,10 @@ public class VibeAccount {
     private UUID id;
 
     private String email;
-    @OneToMany(mappedBy = "vibeAccount", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
+    @OneToMany(mappedBy = "vibeAccount", cascade = CascadeType.ALL, orphanRemoval = true,  fetch = FetchType.LAZY)
     private List<AssociativeEntry> associativeEntries;
 
+    private String passwordHash; // nullable
     private LocalDateTime created;
     private LocalDateTime lastLogin;
     private int failedAttempts;
