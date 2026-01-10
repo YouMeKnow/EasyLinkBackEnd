@@ -27,7 +27,7 @@ public class JpaInteractionRepositoryAdapter implements InteractionRepositoryPor
 
     @Override
     public List<Interaction> getAllFollowings(Vibe subscriberVibe) {
-        return delegateRepository.findAllBySubscriberVibe(subscriberVibe);
+        return delegateRepository.findActiveFollowingsAlive(subscriberVibe);
     }
 
     @Override
@@ -71,7 +71,7 @@ public class JpaInteractionRepositoryAdapter implements InteractionRepositoryPor
     }
 
     public List<Interaction> findActiveSubscribersByTarget(Vibe targetVibe) {
-        return delegateRepository.findByTargetVibeAndInteractionTypeAndActiveTrue(targetVibe, InteractionType.SUBSCRIBE);
+        return delegateRepository.findActiveSubscribersAlive(targetVibe);
     }
 
     @Override

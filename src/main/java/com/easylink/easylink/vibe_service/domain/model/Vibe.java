@@ -4,12 +4,17 @@ package com.easylink.easylink.vibe_service.domain.model;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
+import org.hibernate.annotations.SQLDelete;
+import org.hibernate.annotations.Where;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
+
+@SQLDelete(sql = "UPDATE vibe SET deleted_at = now() WHERE id = ?")
+@Where(clause = "deleted_at IS NULL")
 @Entity
 @Setter
 @Getter

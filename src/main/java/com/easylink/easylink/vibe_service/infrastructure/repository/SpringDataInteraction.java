@@ -32,37 +32,46 @@ public interface SpringDataInteraction extends JpaRepository<Interaction, UUID> 
     @Query("""
         SELECT i, COUNT(o)
         FROM Interaction i
-        LEFT JOIN Offer o ON o.vibe = i.targetVibe AND o.endTime >= CURRENT_TIMESTAMP
+        join i.targetVibe tv
+        LEFT JOIN Offer o ON o.vibe = tv AND o.endTime >= CURRENT_TIMESTAMP
         WHERE i.subscriberVibe = :subscriberVibe
+          and i.active = true
+          and i.interactionType = com.easylink.easylink.vibe_service.domain.interaction.InteractionType.SUBSCRIBE
+          and tv.deletedAt is null
         GROUP BY i
     """)
     List<Object[]> findAllBySubscriberVibeWithOffers(@Param("subscriberVibe") Vibe subscriberVibe);
 
     @Query("""
-    select count(i)
-    from Interaction i
-    where i.active = true
-      and i.interactionType = :type
-      and i.targetVibe.id = :targetId
-""")
-    long countActiveByTarget(
-            @Param("targetId") UUID targetId,
-            @Param("type") InteractionType type
-    );
+        select count(i)
+        from Interaction i
+        join i.targetVibe tv
+        where i.active = true
+          and i.interactionType = :type
+          and tv.id = :targetId
+          and tv.deletedAt is null
+    """)
+
+    long countActiveByTarget(@Param("targetId") UUID targetId, @Param("type") InteractionType type);
 
     @Query("""
-    select i.subscriberVibe.id
-    from Interaction i
-    where i.active = true
-      and i.interactionType = :type
-      and i.targetVibe.id = :targetId
-      and i.subscriberVibe.id in :subscriberIds
-""")
+        select i.subscriberVibe.id
+        from Interaction i
+        join i.targetVibe tv
+        join i.subscriberVibe sv
+        where i.active = true
+          and i.interactionType = :type
+          and tv.id = :targetId
+          and tv.deletedAt is null
+          and sv.deletedAt is null
+          and sv.id in :subscriberIds
+    """)
     List<UUID> findActiveSubscriberVibeIdsForTargetAndSubscriberIn(
             @Param("targetId") UUID targetId,
             @Param("type") InteractionType type,
             @Param("subscriberIds") List<UUID> subscriberIds
     );
+
     Optional<Interaction> findFirstBySubscriberVibeAndTargetVibeAndInteractionTypeOrderByIdDesc(
             Vibe subscriberVibe,
             Vibe targetVibe,
@@ -77,4 +86,25 @@ public interface SpringDataInteraction extends JpaRepository<Interaction, UUID> 
 
     List<Interaction> findByTargetVibeAndInteractionTypeAndActiveTrue(Vibe targetVibe, InteractionType type);
 
+    @Query("""
+        select i
+        from Interaction i
+        join i.targetVibe tv
+        where i.subscriberVibe = :subscriberVibe
+          and i.active = true
+          and i.interactionType = com.easylink.easylink.vibe_service.domain.interaction.InteractionType.SUBSCRIBE
+          and tv.deletedAt is null
+    """)
+    List<Interaction> findActiveFollowingsAlive(@Param("subscriberVibe") Vibe subscriberVibe);
+
+    @Query("""
+        select i
+        from Interaction i
+        join i.subscriberVibe sv
+        where i.targetVibe = :targetVibe
+          and i.active = true
+          and i.interactionType = com.easylink.easylink.vibe_service.domain.interaction.InteractionType.SUBSCRIBE
+          and sv.deletedAt is null
+    """)
+    List<Interaction> findActiveSubscribersAlive(@Param("targetVibe") Vibe targetVibe);
 }
