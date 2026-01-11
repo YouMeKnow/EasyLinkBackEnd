@@ -5,6 +5,7 @@ import com.easylink.easylink.vibe_service.infrastructure.exception.OfferUpdateEx
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.server.ResponseStatusException;
@@ -28,7 +29,7 @@ public class GlobalExceptionalHandler {
             ResponseStatusException ex,
             HttpServletRequest request
     ) {
-        if (isSse(request)) return null;
+        if (isSse(request)) throw ex;
 
         String messageKey = ex.getReason() != null ? ex.getReason() : "unknown_error";
         return ResponseEntity.status(ex.getStatusCode()).body(Map.of(
@@ -44,7 +45,7 @@ public class GlobalExceptionalHandler {
             Exception ex,
             HttpServletRequest request
     ) {
-        if (isSse(request)) return null;
+        if (isSse(request)) return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
 
         return buildErrorResponse(request, HttpStatus.INTERNAL_SERVER_ERROR, "Internal Error", ex.getMessage());
     }
@@ -100,13 +101,32 @@ public class GlobalExceptionalHandler {
             String error,
             String message
     ) {
-        if (isSse(request)) return null;
+        if (isSse(request)) return ResponseEntity.status(status).build();
 
         return ResponseEntity.status(status).body(Map.of(
                 "timestamp", LocalDateTime.now(),
                 "status", status.value(),
                 "error", error,
                 "message", message
+        ));
+    }
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<Map<String, Object>> handleValidation(
+            MethodArgumentNotValidException ex,
+            HttpServletRequest request
+    ) {
+        if (isSse(request)) return ResponseEntity.badRequest().build();
+
+        var fields = new java.util.LinkedHashMap<String, String>();
+        ex.getBindingResult().getFieldErrors()
+                .forEach(err -> fields.put(err.getField(), err.getDefaultMessage()));
+
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
+                "timestamp", LocalDateTime.now(),
+                "status", 400,
+                "error", "Validation Error",
+                "message", "VALIDATION_ERROR",
+                "fields", fields
         ));
     }
 }
