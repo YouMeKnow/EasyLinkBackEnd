@@ -23,4 +23,5 @@ public class OfferResponse {
     private boolean active;
     private LocalDateTime startTime;
     private LocalDateTime endTime;
+    private boolean canManage;
 }
