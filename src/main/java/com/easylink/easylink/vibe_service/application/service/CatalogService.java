@@ -15,8 +15,9 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
-@RequiredArgsConstructor
+
 @Service
+@RequiredArgsConstructor
 public class CatalogService implements CatalogRepositoryPort, CatalogUpdateRepositoryPort {
 
     private final JpaCatalogRepositoryAdapter jpaCatalogRepositoryAdapter;
@@ -24,44 +25,59 @@ public class CatalogService implements CatalogRepositoryPort, CatalogUpdateRepos
 
     @Override
     public List<ItemDTO> getAllItemsByVibeId(UUID vibeId) {
-
-        List<Item> itemList = jpaCatalogRepositoryAdapter.getAllItemsByVibeId(vibeId);
-
-        List<ItemDTO> itemDTOList = itemList.stream().map(item->modelMapper.map(item, ItemDTO.class)).toList();
-
-        return itemDTOList;
+        return jpaCatalogRepositoryAdapter.getAllItemsByVibeId(vibeId)
+                .stream()
+                .map(item -> modelMapper.map(item, ItemDTO.class))
+                .toList();
     }
 
-    public ItemDTO getById(UUID vibeId) {
-
-        Optional<Item> optionalItem = jpaCatalogRepositoryAdapter.getById(vibeId);
-
-        ItemDTO itemDTO = modelMapper.map(optionalItem.orElseThrow(()->new RuntimeException("No item found by ID")), ItemDTO.class);
-
-        return itemDTO;
-    }
-
-
-    @Override
-    public ItemDTO updateItem(UUID id, UpdateItemRequest updateItemRequest) {
-
+    public ItemDTO getById(UUID id) {
         Item item = jpaCatalogRepositoryAdapter.findById(id)
                 .orElseThrow(() -> new NotFoundException("Item not found"));
 
-        if (updateItemRequest.getTitle() != null) {
-            item.setTitle(updateItemRequest.getTitle());
-        }
-        if (updateItemRequest.getDescription() != null) {
-            item.setDescription(updateItemRequest.getDescription());
-        }
-        if (updateItemRequest.getPrice() != null) {
-            item.setPrice(updateItemRequest.getPrice());
-        }
-        if (updateItemRequest.getImageUrl() != null) {
-            item.setImageUrl(updateItemRequest.getImageUrl());
-        }
-
-        return modelMapper.map(jpaCatalogRepositoryAdapter.save(item), ItemDTO.class);
-
+        return modelMapper.map(item, ItemDTO.class);
     }
+
+    @Override
+    public ItemDTO updateItem(UUID id, UpdateItemRequest req) {
+        Item item = jpaCatalogRepositoryAdapter.findById(id)
+                .orElseThrow(() -> new NotFoundException("Item not found"));
+
+        // ---- TITLE ----
+        if (req.getTitle() != null) {
+            String title = req.getTitle().trim();
+            if (title.isEmpty()) {
+                throw new IllegalArgumentException("Title cannot be blank");
+            }
+            item.setTitle(title);
+        }
+
+        // ---- DESCRIPTION ----
+        if (req.getDescription() != null) {
+            String description = req.getDescription().trim();
+            item.setDescription(description);
+        }
+
+        // ---- PRICE ----
+        if (req.getPrice() != null) {
+            item.setPrice(req.getPrice());
+        }
+
+        // ---- IMAGE ----
+        if (req.getImageUrl() != null) {
+            item.setImageUrl(req.getImageUrl().trim());
+        }
+
+        return modelMapper.map(
+                jpaCatalogRepositoryAdapter.save(item),
+                ItemDTO.class
+        );
+    }
+
+    public void deleteItem(UUID id) {
+        Item item = jpaCatalogRepositoryAdapter.findById(id)
+                .orElseThrow(() -> new NotFoundException("Item not found"));
+        jpaCatalogRepositoryAdapter.delete(item);
+    }
+
 }
