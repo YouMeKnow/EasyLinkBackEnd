@@ -1,9 +1,4 @@
 spring:
-   jackson:
-     deserialization:
-     fail-on-unknown-properties: false
-  profiles:
-    active: local
   security:
     oauth2:
       resourceserver:
