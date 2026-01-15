@@ -31,7 +31,7 @@ spring:
     show-sql: ${SPRING_JPA_SHOW_SQL:false}
 
   flyway:
-    enabled: ${SPRING_FLYWAY_ENABLED:true}
+    enabled: ${SPRING_FLYWAY_ENABLED:false}
     locations: classpath:db/migration
     baseline-on-migrate: ${SPRING_FLYWAY_BASELINE_ON_MIGRATE:true}
     validate-on-migrate: ${SPRING_FLYWAY_VALIDATE_ON_MIGRATE:true}
