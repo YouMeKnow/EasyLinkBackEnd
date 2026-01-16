@@ -10,9 +10,6 @@ pipeline {
     DOCKER_HOST = 'tcp://host.docker.internal:2375'
     IMAGE_TAG   = 'ymk/auth-service:latest'
 
-    // Compose v2 in a container (compatible with Docker Engine 28.x)
-    COMPOSE_IMG = 'docker/compose:2.29.2'
-
     // Change if your Dockerfile is not in repo root
     DOCKERFILE_PATH = 'Dockerfile'
   }
@@ -26,8 +23,8 @@ pipeline {
           echo "[preflight] DOCKER_HOST=$DOCKER_HOST"
           docker -H "$DOCKER_HOST" version
 
-          echo "[preflight] compose tool (container) $COMPOSE_IMG"
-          docker -H "$DOCKER_HOST" run --rm "$COMPOSE_IMG" version
+          echo "[preflight] compose tool (host plugin)"
+          docker -H "$DOCKER_HOST" compose version
 
           # Detect host path mount for Windows Desktop
           CAND1=/run/desktop/mnt/host/c/ymk
@@ -102,7 +99,7 @@ pipeline {
             .
 
           echo "[image] built:"
-          docker -H "$DOCKER_HOST" image ls --format '{{.Repository}}:{{.Tag}}  {{.ID}}  {{.Size}}' | grep -E '^ymk/auth-service:latest'
+          docker -H "$DOCKER_HOST" image ls --format '{{.Repository}}:{{.Tag}}  {{.ID}}  {{.Size}}' | grep -E '^ymk/auth-service:latest' || true
         '''
       }
     }
@@ -155,15 +152,11 @@ pipeline {
           . ./.compose_root.env
           echo "[deploy] COMPOSE_ROOT=$COMPOSE_ROOT"
 
-          # 1) remove old container (prevents interactive prompts / broken recreate state)
-          docker -H "$DOCKER_HOST" run --rm \
-            -v "$COMPOSE_ROOT:/work" -w /work "$COMPOSE_IMG" \
-            -p ymk -f /work/docker-compose.yml rm -sf auth-service || true
+          # Remove old container first (prevents interactive prompts / broken recreate state)
+          docker -H "$DOCKER_HOST" compose -p ymk -f "$COMPOSE_ROOT/docker-compose.yml" rm -sf auth-service || true
 
-          # 2) bring up service (non-interactive, compatible compose v2)
-          docker -H "$DOCKER_HOST" run --rm \
-            -v "$COMPOSE_ROOT:/work" -w /work "$COMPOSE_IMG" \
-            -p ymk -f /work/docker-compose.yml up -d --no-deps --force-recreate auth-service
+          # Bring up service (Compose v2)
+          docker -H "$DOCKER_HOST" compose -p ymk -f "$COMPOSE_ROOT/docker-compose.yml" up -d --no-deps --force-recreate auth-service
         '''
       }
     }
@@ -172,9 +165,8 @@ pipeline {
       steps {
         sh '''
           set -eu
-          . ./.compose_root.env
-
           echo "[check] container + secret path"
+
           CID=$(docker -H "$DOCKER_HOST" ps -q -f name=ymk-auth-service-1 || true)
           echo "[check] CID=$CID"
           test -n "$CID"
@@ -186,7 +178,7 @@ pipeline {
           ' || true
 
           echo "[check] last logs"
-          docker -H "$DOCKER_HOST" logs --tail 120 "$CID" || true
+          docker -H "$DOCKER_HOST" logs --tail 150 "$CID" || true
         '''
       }
     }
