@@ -109,25 +109,26 @@ pipeline {
 
     stage('prepare secrets (to C:\\ymk\\secrets)') {
       steps {
-        withCredentials([string(credentialsId: 'jwt_private_pem', variable: 'JWT_PEM')]) {
+        withCredentials([file(credentialsId: 'jwt-private-pem', variable: 'JWT_PEM_FILE')]) {
           sh '''
             set -eu
             . ./.compose_root.env
             echo "[secrets] target compose root: $COMPOSE_ROOT"
-
+    
+            # ensure folder exists on host (C:\\ymk\\secrets)
             docker -H "$DOCKER_HOST" run --rm -v "$COMPOSE_ROOT:/w" busybox sh -lc '
               mkdir -p /w/secrets
               chmod 700 /w/secrets || true
               rm -f /w/secrets/private.pem || true
             '
-
-            echo "[secrets] uploading private.pem"
-            # write file via stdin (keeps file out of git)
-            printf "%s" "$JWT_PEM" | docker -H "$DOCKER_HOST" run --rm -i -v "$COMPOSE_ROOT:/w" busybox sh -lc '
+    
+            echo "[secrets] uploading private.pem from Jenkins secret file"
+            # copy secret-file content into host-mounted C:\\ymk\\secrets\\private.pem
+            cat "$JWT_PEM_FILE" | docker -H "$DOCKER_HOST" run --rm -i -v "$COMPOSE_ROOT:/w" busybox sh -lc '
               cat > /w/secrets/private.pem
               chmod 400 /w/secrets/private.pem || true
             '
-
+    
             echo "[secrets] verify"
             docker -H "$DOCKER_HOST" run --rm -v "$COMPOSE_ROOT:/w" busybox sh -lc '
               ls -la /w/secrets
