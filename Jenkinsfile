@@ -10,41 +10,36 @@ pipeline {
   environment {
     DOCKER_HOST = 'tcp://host.docker.internal:2375'
     IMAGE_TAG   = 'ymk/auth-service:latest'
-    COMPOSE_IMG = 'docker/compose:1.29.2'
   }
 
   stages {
-
     stage('preflight') {
       steps {
         sh '''
           set -eu
-
-          echo "[preflight] DOCKER_HOST=${DOCKER_HOST:-<unset>}"
+          echo "[preflight] DOCKER_HOST=$DOCKER_HOST"
           docker -H "$DOCKER_HOST" version
 
           echo "[preflight] compose tool (container)"
-          docker -H "$DOCKER_HOST" run --rm "$COMPOSE_IMG" version
+          docker -H "$DOCKER_HOST" run --rm docker/compose:1.29.2 version
 
-          # Detect how Windows C:\\ymk is exposed to Linux containers on this Docker Desktop
-          CAND1="/run/desktop/mnt/host/c/ymk"
-          CAND2="/host_mnt/c/ymk"
+          # detect Windows host mount path for Docker Desktop
+          CAND1=/run/desktop/mnt/host/c/ymk
+          CAND2=/host_mnt/c/ymk
 
-          if docker -H "$DOCKER_HOST" run --rm -v "$CAND1:/w" busybox sh -lc "test -f /w/docker-compose.yml"; then
+          if docker -H "$DOCKER_HOST" run --rm -v "$CAND1:/w" busybox sh -lc 'test -f /w/docker-compose.yml'; then
             COMPOSE_ROOT="$CAND1"
-          elif docker -H "$DOCKER_HOST" run --rm -v "$CAND2:/w" busybox sh -lc "test -f /w/docker-compose.yml"; then
+          elif docker -H "$DOCKER_HOST" run --rm -v "$CAND2:/w" busybox sh -lc 'test -f /w/docker-compose.yml'; then
             COMPOSE_ROOT="$CAND2"
           else
-            echo "[error] cannot find docker-compose.yml under $CAND1 or $CAND2"
-            echo "[hint] on Windows host it is C:\\ymk\\docker-compose.yml"
+            echo "[error] can't find docker-compose.yml in C:\\ymk (mount paths tried: $CAND1, $CAND2)"
             exit 1
           fi
 
           echo "[preflight] COMPOSE_ROOT=$COMPOSE_ROOT"
-          docker -H "$DOCKER_HOST" run --rm -v "$COMPOSE_ROOT:/w" busybox ls -la /w | head -n 60
+          printf "COMPOSE_ROOT=%s\n" "$COMPOSE_ROOT" > .compose_root.env
 
-          # Save for later stages
-          echo "COMPOSE_ROOT=$COMPOSE_ROOT" > .compose_root.env
+          docker -H "$DOCKER_HOST" run --rm -v "$COMPOSE_ROOT:/w" busybox sh -lc 'ls -la /w | head -n 60'
         '''
       }
     }
@@ -114,13 +109,23 @@ EOF
             . ./.compose_root.env
 
             echo "[secrets] target compose root: $COMPOSE_ROOT"
-            docker -H "$DOCKER_HOST" run --rm -v "$COMPOSE_ROOT:/w" busybox sh -lc "mkdir -p /w/secrets && chmod 700 /w/secrets || true"
+
+            docker -H "$DOCKER_HOST" run --rm -v "$COMPOSE_ROOT:/w" busybox sh -lc '
+              mkdir -p /w/secrets
+              chmod 700 /w/secrets || true
+              rm -f /w/secrets/private.pem || true
+            '
 
             echo "[secrets] uploading private.pem"
-            cat "$JWT_PEM" | docker -H "$DOCKER_HOST" run --rm -i -v "$COMPOSE_ROOT:/w" busybox sh -lc "cat > /w/secrets/private.pem && chmod 400 /w/secrets/private.pem || true"
+            cat "$JWT_PEM" | docker -H "$DOCKER_HOST" run --rm -i \
+              -v "$COMPOSE_ROOT:/w" \
+              busybox sh -lc 'cat > /w/secrets/private.pem && chmod 400 /w/secrets/private.pem || true'
 
             echo "[secrets] verify"
-            docker -H "$DOCKER_HOST" run --rm -v "$COMPOSE_ROOT:/w" busybox sh -lc "ls -la /w/secrets && test -f /w/secrets/private.pem"
+            docker -H "$DOCKER_HOST" run --rm -v "$COMPOSE_ROOT:/w" busybox sh -lc '
+              ls -la /w/secrets
+              test -f /w/secrets/private.pem
+            '
           '''
         }
       }
@@ -133,10 +138,12 @@ EOF
           . ./.compose_root.env
 
           echo "[deploy] COMPOSE_ROOT=$COMPOSE_ROOT"
+
+          # IMPORTANT: pass DOCKER_HOST into compose container, иначе он ищет /var/run/docker.sock
           docker -H "$DOCKER_HOST" run --rm \
-            -v "$COMPOSE_ROOT:/work" \
-            -w /work \
-            "$COMPOSE_IMG" \
+            -e DOCKER_HOST="$DOCKER_HOST" \
+            -v "$COMPOSE_ROOT:/work" -w /work \
+            docker/compose:1.29.2 \
             -f /work/docker-compose.yml up -d --force-recreate auth-service
         '''
       }
@@ -146,8 +153,7 @@ EOF
       steps {
         sh '''
           set -eu
-          echo "[check] /run/secrets inside auth-service"
-          docker -H "$DOCKER_HOST" exec auth-service sh -lc "ls -la /run/secrets && test -f /run/secrets/jwt_private_key && echo OK"
+          docker -H "$DOCKER_HOST" exec auth-service sh -lc 'ls -la /run/secrets || true; test -f /run/secrets/jwt_private_key && echo "secret OK"'
         '''
       }
     }
