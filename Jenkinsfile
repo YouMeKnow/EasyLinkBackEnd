@@ -5,10 +5,6 @@ pipeline {
   environment {
     DOCKER_HOST = 'tcp://host.docker.internal:2375'
     IMAGE_TAG   = 'ymk/auth-service:latest'
-
-    // repo is checked out into Jenkins workspace
-    BACKEND_DIR = 'EasyLinkBackEnd'   // <- repo folder in C:\ymk (as you showed)
-    DOCKERFILE  = 'Dockerfile'
   }
 
   stages {
@@ -19,11 +15,13 @@ pipeline {
           echo "[preflight] DOCKER_HOST=$DOCKER_HOST"
           docker -H "$DOCKER_HOST" version
           docker -H "$DOCKER_HOST" compose version
-    
+
+          # This path exists INSIDE the Jenkins container because you mount:
+          #   C:/ymk -> /workspace/ymk
           COMPOSE_FILE=/workspace/ymk/docker-compose.yml
           echo "[preflight] COMPOSE_FILE=$COMPOSE_FILE"
           test -f "$COMPOSE_FILE"
-    
+
           printf "COMPOSE_FILE=%s\n" "$COMPOSE_FILE" > .compose_root.env
         '''
       }
@@ -39,7 +37,7 @@ pipeline {
           set -eu
           echo "[image] workspace=$(pwd)"
           ls -la
-    
+
           if [ -f Dockerfile ]; then
             CONTEXT="."
             DF="Dockerfile"
@@ -50,10 +48,10 @@ pipeline {
             echo "ERROR: Dockerfile not found (./Dockerfile or ./EasyLinkBackEnd/Dockerfile)"
             exit 1
           fi
-    
+
           echo "[image] build $IMAGE_TAG using $DF (context=$CONTEXT)"
           docker -H "$DOCKER_HOST" build -t "$IMAGE_TAG" -f "$DF" "$CONTEXT"
-    
+
           docker -H "$DOCKER_HOST" image ls --format '{{.Repository}}:{{.Tag}}  {{.ID}}  {{.Size}}' | grep -E '^ymk/auth-service:latest' || true
         '''
       }
@@ -64,24 +62,20 @@ pipeline {
         withCredentials([file(credentialsId: 'jwt-private-pem', variable: 'JWT_PEM_FILE')]) {
           sh '''
             set -eu
-            . ./.compose_root.env
-            echo "[secrets] COMPOSE_ROOT=$COMPOSE_ROOT"
 
-            docker -H "$DOCKER_HOST" run --rm -v "$COMPOSE_ROOT:/w" busybox sh -lc '
-              mkdir -p /w/secrets
-              chmod 700 /w/secrets || true
-              rm -f /w/secrets/private.pem || true
-            '
+            # Write directly into the mounted host folder (C:\\ymk) via the container path.
+            TARGET_DIR=/workspace/ymk/secrets
+            echo "[secrets] TARGET_DIR=$TARGET_DIR"
 
-            cat "$JWT_PEM_FILE" | docker -H "$DOCKER_HOST" run --rm -i -v "$COMPOSE_ROOT:/w" busybox sh -lc '
-              cat > /w/secrets/private.pem
-              chmod 400 /w/secrets/private.pem || true
-            '
+            mkdir -p "$TARGET_DIR"
+            chmod 700 "$TARGET_DIR" || true
 
-            docker -H "$DOCKER_HOST" run --rm -v "$COMPOSE_ROOT:/w" busybox sh -lc '
-              ls -la /w/secrets
-              test -f /w/secrets/private.pem
-            '
+            rm -f "$TARGET_DIR/private.pem" || true
+            cp "$JWT_PEM_FILE" "$TARGET_DIR/private.pem"
+            chmod 400 "$TARGET_DIR/private.pem" || true
+
+            ls -la "$TARGET_DIR"
+            test -f "$TARGET_DIR/private.pem"
           '''
         }
       }
@@ -102,15 +96,16 @@ pipeline {
         sh '''
           set -eu
           . ./.compose_root.env
-          echo "[deploy] COMPOSE_ROOT=$COMPOSE_ROOT"
+          echo "[deploy] COMPOSE_FILE=$COMPOSE_FILE"
+          test -f "$COMPOSE_FILE"
 
           # hard remove old container (no interactive prompts ever)
-          docker -H "$DOCKER_HOST" compose -p ymk -f "$COMPOSE_ROOT/docker-compose.yml" rm -sf auth-service || true
+          docker -H "$DOCKER_HOST" compose -p ymk -f "$COMPOSE_FILE" rm -sf auth-service || true
 
           # recreate with latest image
-          docker -H "$DOCKER_HOST" compose -p ymk -f "$COMPOSE_ROOT/docker-compose.yml" up -d --no-deps --force-recreate auth-service
+          docker -H "$DOCKER_HOST" compose -p ymk -f "$COMPOSE_FILE" up -d --no-deps --force-recreate auth-service
 
-          docker -H "$DOCKER_HOST" compose -p ymk -f "$COMPOSE_ROOT/docker-compose.yml" ps
+          docker -H "$DOCKER_HOST" compose -p ymk -f "$COMPOSE_FILE" ps
         '''
       }
     }
