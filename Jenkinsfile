@@ -10,6 +10,7 @@ pipeline {
   environment {
     DOCKER_HOST = 'tcp://host.docker.internal:2375'
     IMAGE_TAG   = 'ymk/auth-service:latest'
+    COMPOSE_IMG = 'docker/compose:1.29.2'
   }
 
   stages {
@@ -22,11 +23,14 @@ pipeline {
           docker -H "$DOCKER_HOST" version
 
           echo "[preflight] compose availability on docker-host"
-          docker -H "$DOCKER_HOST" compose version
+          if docker -H "$DOCKER_HOST" compose version >/dev/null 2>&1; then
+            echo "[preflight] docker compose (v2 plugin) OK"
+          else
+            echo "[preflight] docker compose plugin not found; will use ${COMPOSE_IMG}"
+            docker -H "$DOCKER_HOST" run --rm "$COMPOSE_IMG" version
+          fi
 
-          echo "[preflight] required paths on docker-host"
-          docker -H "$DOCKER_HOST" run --rm -v /workspace:/w busybox sh -lc "ls -la /w || true"
-          docker -H "$DOCKER_HOST" run --rm -v /workspace/ymk:/w busybox sh -lc "ls -la /w || true"
+          echo "[preflight] required files on docker-host"
           docker -H "$DOCKER_HOST" run --rm -v /workspace/ymk:/w busybox sh -lc "ls -la /w/docker-compose.yml"
         '''
       }
@@ -119,7 +123,18 @@ EOF
           set -eu
 
           echo "[deploy] bring up auth-service on docker-host"
-          docker -H "$DOCKER_HOST" compose -f /workspace/ymk/docker-compose.yml up -d --force-recreate auth-service
+
+          if docker -H "$DOCKER_HOST" compose version >/dev/null 2>&1; then
+            echo "[deploy] using docker compose (v2 plugin)"
+            docker -H "$DOCKER_HOST" compose -f /workspace/ymk/docker-compose.yml up -d --force-recreate auth-service
+          else
+            echo "[deploy] using ${COMPOSE_IMG} container"
+            docker -H "$DOCKER_HOST" run --rm \
+              -v /workspace/ymk:/work \
+              -w /work \
+              "$COMPOSE_IMG" \
+              -f /work/docker-compose.yml up -d --force-recreate auth-service
+          fi
         '''
       }
     }
