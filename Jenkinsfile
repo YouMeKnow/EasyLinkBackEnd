@@ -135,16 +135,17 @@ EOF
       steps {
         sh '''
           set -eu
+    
           . ./.compose_root.env
-
           echo "[deploy] COMPOSE_ROOT=$COMPOSE_ROOT"
-
-          # IMPORTANT: pass DOCKER_HOST into compose container, иначе он ищет /var/run/docker.sock
+    
           docker -H "$DOCKER_HOST" run --rm \
             -e DOCKER_HOST="$DOCKER_HOST" \
-            -v "$COMPOSE_ROOT:/work" -w /work \
+            -v "$COMPOSE_ROOT:/work" \
+            -w /work \
             docker/compose:1.29.2 \
-            -f /work/docker-compose.yml up -d --force-recreate auth-service
+            -f /work/docker-compose.yml \
+            up -d --no-deps --force-recreate auth-service
         '''
       }
     }
