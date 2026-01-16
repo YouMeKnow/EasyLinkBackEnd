@@ -14,29 +14,44 @@ pipeline {
   }
 
   stages {
-    stage('checkout') {
-      steps {
-        checkout scm
-      }
-    }
 
     stage('preflight') {
       steps {
         sh '''
           set -eu
 
-          echo "[preflight] workspace: $PWD"
-          ls -la
-
           echo "[preflight] DOCKER_HOST=${DOCKER_HOST:-<unset>}"
           docker -H "$DOCKER_HOST" version
 
-          echo "[preflight] compose tool"
+          echo "[preflight] compose tool (container)"
           docker -H "$DOCKER_HOST" run --rm "$COMPOSE_IMG" version
 
-          echo "[preflight] docker-compose.yml exists in repo"
-          test -f docker-compose.yml
+          # Detect how Windows C:\\ymk is exposed to Linux containers on this Docker Desktop
+          CAND1="/run/desktop/mnt/host/c/ymk"
+          CAND2="/host_mnt/c/ymk"
+
+          if docker -H "$DOCKER_HOST" run --rm -v "$CAND1:/w" busybox sh -lc "test -f /w/docker-compose.yml"; then
+            COMPOSE_ROOT="$CAND1"
+          elif docker -H "$DOCKER_HOST" run --rm -v "$CAND2:/w" busybox sh -lc "test -f /w/docker-compose.yml"; then
+            COMPOSE_ROOT="$CAND2"
+          else
+            echo "[error] cannot find docker-compose.yml under $CAND1 or $CAND2"
+            echo "[hint] on Windows host it is C:\\ymk\\docker-compose.yml"
+            exit 1
+          fi
+
+          echo "[preflight] COMPOSE_ROOT=$COMPOSE_ROOT"
+          docker -H "$DOCKER_HOST" run --rm -v "$COMPOSE_ROOT:/w" busybox ls -la /w | head -n 60
+
+          # Save for later stages
+          echo "COMPOSE_ROOT=$COMPOSE_ROOT" > .compose_root.env
         '''
+      }
+    }
+
+    stage('checkout') {
+      steps {
+        checkout scm
       }
     }
 
@@ -91,32 +106,38 @@ EOF
       }
     }
 
-    stage('prepare secrets (repo-local)') {
+    stage('prepare secrets (to C:\\ymk\\secrets)') {
       steps {
         withCredentials([file(credentialsId: 'jwt-private-pem', variable: 'JWT_PEM')]) {
           sh '''
             set -eu
-            mkdir -p secrets
-            cp "$JWT_PEM" secrets/private.pem
-            chmod 400 secrets/private.pem || true
-            echo "[secrets] repo secrets folder:"
-            ls -la secrets
+            . ./.compose_root.env
+
+            echo "[secrets] target compose root: $COMPOSE_ROOT"
+            docker -H "$DOCKER_HOST" run --rm -v "$COMPOSE_ROOT:/w" busybox sh -lc "mkdir -p /w/secrets && chmod 700 /w/secrets || true"
+
+            echo "[secrets] uploading private.pem"
+            cat "$JWT_PEM" | docker -H "$DOCKER_HOST" run --rm -i -v "$COMPOSE_ROOT:/w" busybox sh -lc "cat > /w/secrets/private.pem && chmod 400 /w/secrets/private.pem || true"
+
+            echo "[secrets] verify"
+            docker -H "$DOCKER_HOST" run --rm -v "$COMPOSE_ROOT:/w" busybox sh -lc "ls -la /w/secrets && test -f /w/secrets/private.pem"
           '''
         }
       }
     }
 
-    stage('deploy auth-service (compose from repo)') {
+    stage('deploy auth-service (from C:\\ymk)') {
       steps {
         sh '''
           set -eu
+          . ./.compose_root.env
 
-          echo "[deploy] running compose from repo workspace via ${COMPOSE_IMG}"
+          echo "[deploy] COMPOSE_ROOT=$COMPOSE_ROOT"
           docker -H "$DOCKER_HOST" run --rm \
-            -v "$PWD:/work" \
+            -v "$COMPOSE_ROOT:/work" \
             -w /work \
-            "${COMPOSE_IMG}" \
-            up -d --force-recreate auth-service
+            "$COMPOSE_IMG" \
+            -f /work/docker-compose.yml up -d --force-recreate auth-service
         '''
       }
     }
