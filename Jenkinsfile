@@ -1,6 +1,5 @@
 pipeline {
   agent any
-
   options {
     timestamps()
     disableConcurrentBuilds()
@@ -10,6 +9,12 @@ pipeline {
   environment {
     DOCKER_HOST = 'tcp://host.docker.internal:2375'
     IMAGE_TAG   = 'ymk/auth-service:latest'
+
+    // Compose v2 in a container (compatible with Docker Engine 28.x)
+    COMPOSE_IMG = 'docker/compose:2.29.2'
+
+    // Change if your Dockerfile is not in repo root
+    DOCKERFILE_PATH = 'Dockerfile'
   }
 
   stages {
@@ -19,13 +24,12 @@ pipeline {
         sh '''
           set -eu
           echo "[preflight] DOCKER_HOST=$DOCKER_HOST"
-
           docker -H "$DOCKER_HOST" version
 
-          echo "[preflight] compose tool (container)"
-          docker -H "$DOCKER_HOST" run --rm docker/compose:1.29.2 version
+          echo "[preflight] compose tool (container) $COMPOSE_IMG"
+          docker -H "$DOCKER_HOST" run --rm "$COMPOSE_IMG" version
 
-          # Detect Windows host path (Docker Desktop variants)
+          # Detect host path mount for Windows Desktop
           CAND1=/run/desktop/mnt/host/c/ymk
           CAND2=/host_mnt/c/ymk
 
@@ -35,15 +39,13 @@ pipeline {
             COMPOSE_ROOT="$CAND2"
           else
             echo "[preflight] ERROR: cannot find docker-compose.yml in $CAND1 or $CAND2"
-            docker -H "$DOCKER_HOST" run --rm -v "$CAND1:/w" busybox sh -lc 'ls -la /w || true' || true
-            docker -H "$DOCKER_HOST" run --rm -v "$CAND2:/w" busybox sh -lc 'ls -la /w || true' || true
-            exit 1
+            exit 2
           fi
 
           echo "[preflight] COMPOSE_ROOT=$COMPOSE_ROOT"
-          printf "COMPOSE_ROOT=%s\n" "$COMPOSE_ROOT" > .compose_root.env
+          printf "COMPOSE_ROOT=%s" "$COMPOSE_ROOT" > .compose_root.env
 
-          docker -H "$DOCKER_HOST" run --rm -v "$COMPOSE_ROOT:/w" busybox sh -lc 'ls -la /w | head -n 60'
+          docker -H "$DOCKER_HOST" run --rm -v "$COMPOSE_ROOT:/w" busybox sh -lc 'ls -la /w | head -n 80'
         '''
       }
     }
@@ -62,7 +64,7 @@ pipeline {
 
           CID=$(docker -H "$DOCKER_HOST" create gradle:8.9-jdk21 bash -lc 'sleep infinity')
           echo "[jar] temp container: $CID"
-          docker -H "$DOCKER_HOST" start "$CID"
+          docker -H "$DOCKER_HOST" start "$CID" >/dev/null
 
           docker -H "$DOCKER_HOST" cp . "$CID:/app"
 
@@ -80,9 +82,9 @@ pipeline {
           docker -H "$DOCKER_HOST" cp "$CID:$JAR_IN" ./app.jar
           ls -la app.jar
 
-          docker -H "$DOCKER_HOST" rm -f "$CID"
+          docker -H "$DOCKER_HOST" rm -f "$CID" >/dev/null
         '''
-        stash includes: 'app.jar', name: 'appjar'
+        stash name: 'appjar', includes: 'app.jar'
       }
     }
 
@@ -91,18 +93,16 @@ pipeline {
         unstash 'appjar'
         sh '''
           set -eu
+          test -f app.jar
 
-          # Create a minimal Dockerfile used by CI
-          cat > Dockerfile.ci <<'EOF'
-          FROM eclipse-temurin:21-jre
-          WORKDIR /app
-          COPY app.jar /app/app.jar
-          EXPOSE 8080
-          ENTRYPOINT ["java","-jar","/app/app.jar"]
-          EOF
+          echo "[image] building $IMAGE_TAG using $DOCKERFILE_PATH"
+          docker -H "$DOCKER_HOST" build \
+            -t "$IMAGE_TAG" \
+            -f "$DOCKERFILE_PATH" \
+            .
 
-          docker -H "$DOCKER_HOST" build --no-cache -t "$IMAGE_TAG" -f Dockerfile.ci .
-          docker -H "$DOCKER_HOST" image inspect "$IMAGE_TAG" --format 'id={{.Id}} created={{.Created}} tags={{.RepoTags}}'
+          echo "[image] built:"
+          docker -H "$DOCKER_HOST" image ls --format '{{.Repository}}:{{.Tag}}  {{.ID}}  {{.Size}}' | grep -E '^ymk/auth-service:latest'
         '''
       }
     }
@@ -114,21 +114,19 @@ pipeline {
             set -eu
             . ./.compose_root.env
             echo "[secrets] target compose root: $COMPOSE_ROOT"
-    
-            # ensure folder exists on host (C:\\ymk\\secrets)
+
             docker -H "$DOCKER_HOST" run --rm -v "$COMPOSE_ROOT:/w" busybox sh -lc '
               mkdir -p /w/secrets
               chmod 700 /w/secrets || true
               rm -f /w/secrets/private.pem || true
             '
-    
+
             echo "[secrets] uploading private.pem from Jenkins secret file"
-            # copy secret-file content into host-mounted C:\\ymk\\secrets\\private.pem
             cat "$JWT_PEM_FILE" | docker -H "$DOCKER_HOST" run --rm -i -v "$COMPOSE_ROOT:/w" busybox sh -lc '
               cat > /w/secrets/private.pem
               chmod 400 /w/secrets/private.pem || true
             '
-    
+
             echo "[secrets] verify"
             docker -H "$DOCKER_HOST" run --rm -v "$COMPOSE_ROOT:/w" busybox sh -lc '
               ls -la /w/secrets
@@ -144,8 +142,8 @@ pipeline {
         sh '''
           set -eu
           echo "[net] ensure external network: ymk"
-          docker -H "$DOCKER_HOST" network inspect ymk >/dev/null 2>&1 || docker -H "$DOCKER_HOST" network create ymk
-          docker -H "$DOCKER_HOST" network ls | grep -E "\\bymk\\b" || true
+          docker -H "$DOCKER_HOST" network inspect ymk >/dev/null 2>&1 || docker -H "$DOCKER_HOST" network create ymk >/dev/null
+          docker -H "$DOCKER_HOST" network ls | grep -E '\\bymk\\b' || true
         '''
       }
     }
@@ -157,14 +155,15 @@ pipeline {
           . ./.compose_root.env
           echo "[deploy] COMPOSE_ROOT=$COMPOSE_ROOT"
 
+          # 1) remove old container (prevents interactive prompts / broken recreate state)
           docker -H "$DOCKER_HOST" run --rm \
-            -e DOCKER_HOST="$DOCKER_HOST" \
-            -v "$COMPOSE_ROOT:/work" \
-            -w /work \
-            docker/compose:1.29.2 \
-            -p ymk \
-            -f /work/docker-compose.yml \
-            up -d --no-deps --force-recreate auth-service
+            -v "$COMPOSE_ROOT:/work" -w /work "$COMPOSE_IMG" \
+            -p ymk -f /work/docker-compose.yml rm -sf auth-service || true
+
+          # 2) bring up service (non-interactive, compatible compose v2)
+          docker -H "$DOCKER_HOST" run --rm \
+            -v "$COMPOSE_ROOT:/work" -w /work "$COMPOSE_IMG" \
+            -p ymk -f /work/docker-compose.yml up -d --no-deps --force-recreate auth-service
         '''
       }
     }
@@ -173,29 +172,36 @@ pipeline {
       steps {
         sh '''
           set -eu
-          echo "[check] verifying secret mounted inside auth-service"
-          docker -H "$DOCKER_HOST" exec auth-service sh -lc '
+          . ./.compose_root.env
+
+          echo "[check] container + secret path"
+          CID=$(docker -H "$DOCKER_HOST" ps -q -f name=ymk-auth-service-1 || true)
+          echo "[check] CID=$CID"
+          test -n "$CID"
+
+          docker -H "$DOCKER_HOST" exec "$CID" sh -lc '
+            set -e
             ls -la /run/secrets || true
-            test -f /run/secrets/jwt_private_key || test -f /run/secrets/private.pem || true
-          '
+            ls -la /run/secrets/private.pem || true
+          ' || true
+
+          echo "[check] last logs"
+          docker -H "$DOCKER_HOST" logs --tail 120 "$CID" || true
         '''
       }
     }
   }
 
   post {
-    success {
-      echo 'Backend deploy succeeded!'
-    }
-    failure {
-      echo 'Backend deploy failed!'
-    }
     always {
       sh '''
         set +e
         echo "[post] docker ps (top 30)"
-        docker -H "$DOCKER_HOST" ps -a | head -n 30 || true
+        docker -H "$DOCKER_HOST" ps -a | head -n 30
       '''
+    }
+    failure {
+      echo 'Backend deploy failed!'
     }
   }
 }
