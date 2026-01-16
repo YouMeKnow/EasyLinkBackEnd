@@ -14,31 +14,29 @@ pipeline {
   }
 
   stages {
+    stage('checkout') {
+      steps {
+        checkout scm
+      }
+    }
+
     stage('preflight') {
       steps {
         sh '''
           set -eu
 
+          echo "[preflight] workspace: $PWD"
+          ls -la
+
           echo "[preflight] DOCKER_HOST=${DOCKER_HOST:-<unset>}"
           docker -H "$DOCKER_HOST" version
 
-          echo "[preflight] compose availability on docker-host"
-          if docker -H "$DOCKER_HOST" compose version >/dev/null 2>&1; then
-            echo "[preflight] docker compose (v2 plugin) OK"
-          else
-            echo "[preflight] docker compose plugin not found; will use ${COMPOSE_IMG}"
-            docker -H "$DOCKER_HOST" run --rm "$COMPOSE_IMG" version
-          fi
+          echo "[preflight] compose tool"
+          docker -H "$DOCKER_HOST" run --rm "$COMPOSE_IMG" version
 
-          echo "[preflight] required files on docker-host"
-          docker -H "$DOCKER_HOST" run --rm -v /workspace/ymk:/w busybox sh -lc "ls -la /w/docker-compose.yml"
+          echo "[preflight] docker-compose.yml exists in repo"
+          test -f docker-compose.yml
         '''
-      }
-    }
-
-    stage('checkout') {
-      steps {
-        checkout scm
       }
     }
 
@@ -93,48 +91,32 @@ EOF
       }
     }
 
-    stage('prepare secrets') {
+    stage('prepare secrets (repo-local)') {
       steps {
         withCredentials([file(credentialsId: 'jwt-private-pem', variable: 'JWT_PEM')]) {
           sh '''
             set -eu
-
-            echo "[secrets] ensure folder exists on docker-host"
-            docker -H "$DOCKER_HOST" run --rm \
-              -v /workspace/ymk/secrets:/secrets \
-              busybox sh -lc "mkdir -p /secrets && chmod 700 /secrets || true"
-
-            echo "[secrets] upload private.pem to docker-host"
-            cat "$JWT_PEM" | docker -H "$DOCKER_HOST" run --rm -i \
-              -v /workspace/ymk/secrets:/secrets \
-              busybox sh -lc "cat > /secrets/private.pem && chmod 400 /secrets/private.pem || true"
-
-            echo "[secrets] verify on docker-host"
-            docker -H "$DOCKER_HOST" run --rm -v /workspace/ymk/secrets:/s \
-              busybox sh -lc "ls -la /s && test -f /s/private.pem"
+            mkdir -p secrets
+            cp "$JWT_PEM" secrets/private.pem
+            chmod 400 secrets/private.pem || true
+            echo "[secrets] repo secrets folder:"
+            ls -la secrets
           '''
         }
       }
     }
 
-    stage('deploy auth-service') {
+    stage('deploy auth-service (compose from repo)') {
       steps {
         sh '''
           set -eu
 
-          echo "[deploy] bring up auth-service on docker-host"
-
-          if docker -H "$DOCKER_HOST" compose version >/dev/null 2>&1; then
-            echo "[deploy] using docker compose (v2 plugin)"
-            docker -H "$DOCKER_HOST" compose -f /workspace/ymk/docker-compose.yml up -d --force-recreate auth-service
-          else
-            echo "[deploy] using ${COMPOSE_IMG} container"
-            docker -H "$DOCKER_HOST" run --rm \
-              -v /workspace/ymk:/work \
-              -w /work \
-              "$COMPOSE_IMG" \
-              -f /work/docker-compose.yml up -d --force-recreate auth-service
-          fi
+          echo "[deploy] running compose from repo workspace via ${COMPOSE_IMG}"
+          docker -H "$DOCKER_HOST" run --rm \
+            -v "$PWD:/work" \
+            -w /work \
+            "${COMPOSE_IMG}" \
+            up -d --force-recreate auth-service
         '''
       }
     }
