@@ -46,14 +46,23 @@ pipeline {
       steps {
         sh '''
           set -eu
-          echo "[image] build $IMAGE_TAG from $BACKEND_DIR/$DOCKERFILE"
-          test -f "$BACKEND_DIR/$DOCKERFILE"
-
-          docker -H "$DOCKER_HOST" build \
-            -t "$IMAGE_TAG" \
-            -f "$BACKEND_DIR/$DOCKERFILE" \
-            "$BACKEND_DIR"
-
+          echo "[image] workspace=$(pwd)"
+          ls -la
+    
+          if [ -f Dockerfile ]; then
+            CONTEXT="."
+            DF="Dockerfile"
+          elif [ -f EasyLinkBackEnd/Dockerfile ]; then
+            CONTEXT="EasyLinkBackEnd"
+            DF="EasyLinkBackEnd/Dockerfile"
+          else
+            echo "ERROR: Dockerfile not found (./Dockerfile or ./EasyLinkBackEnd/Dockerfile)"
+            exit 1
+          fi
+    
+          echo "[image] build $IMAGE_TAG using $DF (context=$CONTEXT)"
+          docker -H "$DOCKER_HOST" build -t "$IMAGE_TAG" -f "$DF" "$CONTEXT"
+    
           docker -H "$DOCKER_HOST" image ls --format '{{.Repository}}:{{.Tag}}  {{.ID}}  {{.Size}}' | grep -E '^ymk/auth-service:latest' || true
         '''
       }
