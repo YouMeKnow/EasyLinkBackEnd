@@ -19,21 +19,12 @@ pipeline {
           echo "[preflight] DOCKER_HOST=$DOCKER_HOST"
           docker -H "$DOCKER_HOST" version
           docker -H "$DOCKER_HOST" compose version
-
-          CAND1=/run/desktop/mnt/host/c/ymk
-          CAND2=/host_mnt/c/ymk
-
-          if docker -H "$DOCKER_HOST" run --rm -v "$CAND1:/w" busybox sh -lc 'test -f /w/docker-compose.yml'; then
-            COMPOSE_ROOT="$CAND1"
-          elif docker -H "$DOCKER_HOST" run --rm -v "$CAND2:/w" busybox sh -lc 'test -f /w/docker-compose.yml'; then
-            COMPOSE_ROOT="$CAND2"
-          else
-            echo "[preflight] ERROR: cannot find docker-compose.yml in $CAND1 or $CAND2"
-            exit 2
-          fi
-
-          echo "[preflight] COMPOSE_ROOT=$COMPOSE_ROOT"
-          printf "COMPOSE_ROOT=%s" "$COMPOSE_ROOT" > .compose_root.env
+    
+          COMPOSE_FILE=/workspace/ymk/docker-compose.yml
+          echo "[preflight] COMPOSE_FILE=$COMPOSE_FILE"
+          test -f "$COMPOSE_FILE"
+    
+          printf "COMPOSE_FILE=%s\n" "$COMPOSE_FILE" > .compose_root.env
         '''
       }
     }
