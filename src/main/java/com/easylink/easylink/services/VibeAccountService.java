@@ -41,8 +41,12 @@ public class VibeAccountService {
     private static final int MAX_FAILED_ATTEMPTS = 5;
     private static final Duration LOCK_DURATION = Duration.ofMinutes(30);
 
-    private final JwtService jwtService;
+    private static final long BASE_DELAY_MS = 400; // 0.4s
+    private static final long MAX_DELAY_MS = 10_000;  // 10s
+    private static final long JITTER_MS = 250; // random 0...250ms
+    private static final Duration FAIL_WINDOW = Duration.ofHours(2);
 
+    private final JwtService jwtService;
     private final EmailVerificationService emailVerificationService;
 
     private AssociativeEntry createAssociativeEntry(AssociativeEntryDTO dto) {
@@ -71,29 +75,29 @@ public class VibeAccountService {
     }
 
 
-    public boolean createVibeAccount(SignUpDTO signUpDTO){
+    public boolean createVibeAccount(SignUpDTO signUpDTO) {
+
         List<VibeAccount> existing = vibeAccountRepository.findByEmail(signUpDTO.getEmail());
 
-        if(existing.stream().count()>1){
+        if (existing.size() > 1) {
             throw new DuplicateAccountException("More than one account with this email!");
         }
 
-          if (!existing.isEmpty()) {
-            VibeAccount account = existing.get(0);
-            if (Boolean.TRUE.equals(account.getIsEmailVerified())) {
-                throw new ResponseStatusException(HttpStatus.CONFLICT, "signup.account_already_exists");
+        if (!existing.isEmpty()) {
+            VibeAccount acc = existing.get(0);
+
+            if (Boolean.TRUE.equals(acc.getIsEmailVerified())) {
+                throw new ResponseStatusException(
+                        HttpStatus.CONFLICT,
+                        "signup.account_already_exists"
+                );
             }
 
-            if (account.getTokenExpiry() != null && account.getTokenExpiry().isAfter(LocalDateTime.now())) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "signup.verification_already_sent");
-            }
-            vibeAccountRepository.delete(account);
-        }
-
-        boolean accountExists = vibeAccountRepository.existsByEmail(signUpDTO.getEmail());
-
-        if(accountExists){
-            throw new IllegalStateException("Vibe account with this email already exists");
+            emailVerificationService.sendVerificationEmail(acc);
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "signup.account_exists_unverified"
+            );
         }
 
         VibeAccount vibeAccount = new VibeAccount();
@@ -104,21 +108,68 @@ public class VibeAccountService {
         List<AssociativeEntry> entries = signUpDTO.getEntries()
                 .stream()
                 .map(this::createAssociativeEntry)
-                .collect(Collectors.toList());
+                .toList();
 
         entries.forEach(e -> e.setVibeAccount(vibeAccount));
-
         vibeAccount.setAssociativeEntries(entries);
 
-        amplitudeService.sendEvent(signUpDTO.getEmail(),"User created", Map.of(
+        amplitudeService.sendEvent(signUpDTO.getEmail(), "User created", Map.of(
                 "source", "backend",
-                "email",signUpDTO.getEmail()
+                "email", signUpDTO.getEmail(),
+                "signup_method", "memory_locks"
         ));
 
-        VibeAccount savedAccount = vibeAccountRepository.save(vibeAccount);
-        emailVerificationService.sendVerificationEmail(savedAccount);
+        VibeAccount saved = vibeAccountRepository.save(vibeAccount);
+        emailVerificationService.sendVerificationEmail(saved);
 
-        return savedAccount != null;
+        return saved != null;
+    }
+
+    public boolean createPasswordAccount(PasswordSignUpDTO dto) {
+
+        List<VibeAccount> existing = vibeAccountRepository.findByEmail(dto.getEmail());
+
+        if (existing.size() > 1) {
+            throw new DuplicateAccountException("More than one account with this email!");
+        }
+
+        if (!existing.isEmpty()) {
+            VibeAccount acc = existing.get(0);
+
+            if (Boolean.TRUE.equals(acc.getIsEmailVerified())) {
+                throw new ResponseStatusException(
+                        HttpStatus.CONFLICT,
+                        "signup.account_already_exists"
+                );
+            }
+
+            acc.setPasswordHash(passwordEncoder.encode(dto.getPassword()));
+            vibeAccountRepository.save(acc);
+
+            emailVerificationService.sendVerificationEmail(acc);
+
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "signup.account_exists_unverified"
+            );
+        }
+
+        VibeAccount vibeAccount = new VibeAccount();
+        vibeAccount.setCreated(LocalDateTime.now());
+        vibeAccount.setLastLogin(LocalDateTime.now());
+        vibeAccount.setEmail(dto.getEmail());
+        vibeAccount.setPasswordHash(passwordEncoder.encode(dto.getPassword()));
+
+        amplitudeService.sendEvent(dto.getEmail(), "User created", Map.of(
+                "source", "backend",
+                "email", dto.getEmail(),
+                "signup_method", "password"
+        ));
+
+        VibeAccount saved = vibeAccountRepository.save(vibeAccount);
+        emailVerificationService.sendVerificationEmail(saved);
+
+        return saved != null;
     }
 
 
@@ -204,6 +255,48 @@ public class VibeAccountService {
         }
     }
 
+    public String checkPassword(PasswordLoginDTO dto) {
+        List<VibeAccount> list = vibeAccountRepository.findByEmail(dto.getEmail());
+
+        // same answer (to avoid revealing the existence of email)
+        if (list.isEmpty()) {
+            // fixed delay
+            sleepMs(250);
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials");
+        }
+        if (list.size() > 1) throw new DuplicateAccountException("More than one account with this email!");
+
+        VibeAccount acc = list.get(0);
+
+        if (Boolean.FALSE.equals(acc.getIsEmailVerified())) {
+            sleepMs(250);
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials");
+        }
+
+        if (acc.getPasswordHash() == null || acc.getPasswordHash().isBlank()) {
+            sleepMs(250);
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials");
+        }
+
+        resetAttemptsIfExpired(acc);
+
+        boolean ok = passwordEncoder.matches(dto.getPassword(), acc.getPasswordHash());
+        if (!ok) {
+            registerPasswordFail(acc);
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials");
+        }
+
+        registerPasswordSuccess(acc);
+
+        amplitudeService.sendEvent(dto.getEmail(), "User login", Map.of(
+                "source", "backend",
+                "email", dto.getEmail(),
+                "login_method", "password"
+        ));
+
+        return dto.getEmail();
+    }
+
 
 
     private void handleFailedLogin(VibeAccount vibeAccount) {
@@ -277,5 +370,66 @@ public class VibeAccountService {
                 .findByIsEmailVerifiedFalseAndTokenExpiryBefore(LocalDateTime.now());
 
         vibeAccountRepository.deleteAll(expiredAccounts);
+    }
+
+    private long computeProgressiveDelayMs(int failedAttempts){
+        // failedAttempts starts from 1
+        int n = Math.max(1, failedAttempts);
+
+        // exponential backoff: BASE * 2^(n-1)
+        long exp = BASE_DELAY_MS * (1L << Math.min(20, n - 1)); // cap shift safety
+        long delay = Math.min(MAX_DELAY_MS, exp);
+
+        long jitter = (long) (Math.random() * JITTER_MS);
+        return Math.min(MAX_DELAY_MS, delay + jitter);
+    }
+
+    private void sleepMs(long ms) {
+        try {
+            Thread.sleep(ms);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    private void registerPasswordFail(VibeAccount acc) {
+        acc.setFailedAttempts(acc.getFailedAttempts() + 1);
+        acc.setLastFailedAt(Instant.now());
+        vibeAccountRepository.save(acc);
+
+        long delay = computeProgressiveDelayMs(acc.getFailedAttempts());
+        sleepMs(delay);
+    }
+
+    private void registerPasswordSuccess(VibeAccount acc) {
+        if (acc.getFailedAttempts() != 0 || acc.getLastFailedAt() != null) {
+            acc.setFailedAttempts(0);
+            acc.setLastFailedAt(null);
+        }
+        acc.setLastLogin(LocalDateTime.now());
+        vibeAccountRepository.save(acc);
+    }
+
+    private void resetAttemptsIfExpired(VibeAccount acc) {
+        Instant last = acc.getLastFailedAt();
+        if (last == null) return;
+
+        Instant cutoff = Instant.now().minus(FAIL_WINDOW);
+        if (last.isBefore(cutoff)) {
+            acc.setFailedAttempts(0);
+            acc.setLastFailedAt(null);
+            vibeAccountRepository.save(acc);
+        }
+    }
+
+    public VibeAccount loadByEmail(String email) {
+        List<VibeAccount> list = vibeAccountRepository.findByEmail(email);
+        if (list.isEmpty()) {
+            throw new UsernameNotFoundException("No account found with email: " + email);
+        }
+        if (list.size() > 1) {
+            throw new IllegalStateException("Multiple accounts found with same email: " + email);
+        }
+        return list.get(0);
     }
 }

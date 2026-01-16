@@ -23,7 +23,7 @@ public class JpaVibeRepositoryAdapter  implements VibeRepositoryPort {
 
     @Override
     public Optional<Vibe> findById(UUID id) {
-        return delegate.findById(id);
+        return delegate.findByIdAndDeletedAtIsNull(id);
     }
 
     @Override
@@ -33,7 +33,7 @@ public class JpaVibeRepositoryAdapter  implements VibeRepositoryPort {
 
     @Override
     public List<Vibe> findAllByAccountId(UUID id) {
-        return delegate.findAllByVibeAccountId(id);
+        return delegate.findAllByVibeAccountIdAndDeletedAtIsNull(id);
     }
 
     @Override
@@ -42,17 +42,27 @@ public class JpaVibeRepositoryAdapter  implements VibeRepositoryPort {
     }
 
     @Override
-    public List<Vibe> findAllById(UUID id) {
-        return delegate.findAllById(id);
+    public Optional<Vibe> findByPublicCodeAndVisibleTrue(String publicCode) {
+        return delegate.findByPublicCodeAndVisibleTrueAndDeletedAtIsNull(publicCode);
     }
 
     @Override
-    public Optional<Vibe> findByPublicCodeAndVisibleTrue(String publicCode) {
-        return delegate.findByPublicCodeAndVisibleTrue(publicCode);
+    public List<Vibe> findAllActiveByAccountId(UUID id) {
+        return delegate.findAllByVibeAccountIdAndDeletedAtIsNull(id);
+    }
+
+    @Override
+    public Optional<Vibe> findActiveById(UUID id) {
+        return delegate.findByIdAndDeletedAtIsNull(id);
+    }
+
+    @Override
+    public long countActiveByVibeAccountId(UUID userId) {
+        return delegate.countByVibeAccountIdAndDeletedAtIsNull(userId);
     }
 
     @Override
     public long countByVibeAccountId(UUID userId) {
-        return delegate.countByVibeAccountId(userId);
+        return delegate.countByVibeAccountIdAndDeletedAtIsNull(userId);
     }
 }

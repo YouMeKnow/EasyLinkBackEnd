@@ -80,11 +80,14 @@ public class VibeController {
 
     @Operation(summary = "Get profile", description = "Get Vibe profile using ID")
     @GetMapping("/{id}")
-    public ResponseEntity<VibeResponse> getById(@PathVariable UUID id){
-
+    public ResponseEntity<VibeResponse> getById(
+            @PathVariable UUID id,
+            @AuthenticationPrincipal Jwt jwt
+    ){
+        String viewerAccountId = (jwt != null ? jwt.getSubject() : null);
         //      UUID accountId = UUID.fromString(jwt.getSubject());
 
-        VibeDto vibeDto = getVibeByIdUseCase.getVibeById(id);
+        VibeDto vibeDto = getVibeByIdUseCase.getVibeById(id, viewerAccountId);
 
         return ResponseEntity.ok(VibeResponseMapper.toResponse(vibeDto));
     }

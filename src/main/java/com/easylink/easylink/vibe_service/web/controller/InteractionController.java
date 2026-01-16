@@ -30,13 +30,21 @@ public class InteractionController {
     private final ModelMapper modelMapper;
 
     @PostMapping
-    public ResponseEntity<InteractionResponse> create(@RequestBody CreateInteractionRequest createInteractionRequest, @AuthenticationPrincipal Jwt jwt){
+    public ResponseEntity<InteractionResponse> create(
+            @RequestBody CreateInteractionRequest createInteractionRequest,
+            @AuthenticationPrincipal Jwt jwt
+    ) {
+        return ResponseEntity.ok(
+                interactionService.createInteractionFromJwt(
+                        createInteractionRequest,
+                        jwt.getSubject()
+                )
+        );
+    }
 
-        String vibeAccountId = jwt.getSubject();
-
-        InteractionResponse interactionResponse = createInteractionUseCase.createInteraction(createInteractionRequest);
-
-        return ResponseEntity.ok(interactionResponse);
+    @GetMapping("/subscribers/{vibeId}")
+    public List<VibeDto> subscribers(@PathVariable UUID vibeId, @AuthenticationPrincipal Jwt jwt) {
+        return interactionService.getSubscribersOwnedBy(vibeId, jwt.getSubject());
     }
 
     @GetMapping("/{id}/following")
@@ -93,6 +101,11 @@ public class InteractionController {
         boolean isSubscribed = interactionService.isSubscribedEarlyAccess(email);
 
         return ResponseEntity.ok(isSubscribed);
+    }
+
+    @GetMapping("/{vibeId}/subscribers")
+    public List<VibeDto> subscribersPublic(@PathVariable UUID vibeId) {
+        return interactionService.getSubscribers(vibeId);
     }
 
 //    @RequestMapping("/followers")

@@ -11,5 +11,4 @@ public class PhoneNumber extends AbstractContactDetail{
     @Enumerated(EnumType.STRING)
     private TypePhone type;
 
-
 }

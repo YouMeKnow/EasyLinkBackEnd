@@ -21,6 +21,8 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.UUID;
 
+import jakarta.validation.Valid;
+
 @RestController
 @RequestMapping("/api/v3/catalog")
 @Tag(name="Catalog API", description = "Manage Catalog")
@@ -33,43 +35,46 @@ public class CatalogController {
 
     @Operation(summary = "Create item", description = "Create new item")
     @PostMapping
-    public ResponseEntity<ItemResponse> createItem(@RequestBody CreateItemRequest createItemRequest, @AuthenticationPrincipal Jwt jwt){
-
-        ItemDTO itemDTO = createItemUseCase.saveItem(modelMapper.map(createItemRequest, CreateItemCommand.class));
-
+    public ResponseEntity<ItemResponse> createItem(
+            @RequestBody @Valid CreateItemRequest createItemRequest,
+            @AuthenticationPrincipal Jwt jwt
+    ){
+        ItemDTO itemDTO = createItemUseCase.saveItem(
+                modelMapper.map(createItemRequest, CreateItemCommand.class)
+        );
         return ResponseEntity.ok(modelMapper.map(itemDTO, ItemResponse.class));
     }
 
     @Operation(summary = "Get all items", description = "Get all items by VibeId")
     @GetMapping
-    private ResponseEntity<List<ItemResponse>> getAllItemsByVibeId(@RequestParam UUID vibeId){
-
+    public ResponseEntity<List<ItemResponse>> getAllItemsByVibeId(@RequestParam UUID vibeId){
         List<ItemDTO> itemDTOList = catalogService.getAllItemsByVibeId(vibeId);
-
-        List<ItemResponse> itemResponseList = itemDTOList.stream().map(item->modelMapper.map(item,ItemResponse.class)).toList();
-
+        List<ItemResponse> itemResponseList = itemDTOList.stream()
+                .map(item -> modelMapper.map(item, ItemResponse.class))
+                .toList();
         return ResponseEntity.ok(itemResponseList);
-
     }
 
     @GetMapping("/{id}")
-    private ResponseEntity<ItemResponse> getItemById(@PathVariable UUID id){
-
+    public ResponseEntity<ItemResponse> getItemById(@PathVariable UUID id){
         ItemDTO itemDTO = catalogService.getById(id);
-
-        ItemResponse itemResponse = modelMapper.map(itemDTO,ItemResponse.class);
-
-        return ResponseEntity.ok(itemResponse);
+        return ResponseEntity.ok(modelMapper.map(itemDTO, ItemResponse.class));
     }
 
     @Operation(summary="Update item", description = "Partially update an item")
     @PatchMapping("/{id}")
-    public ResponseEntity<ItemResponse> updateItem(@PathVariable UUID id, @RequestBody UpdateItemRequest updateItemRequest){
-
+    public ResponseEntity<ItemResponse> updateItem(
+            @PathVariable UUID id,
+            @RequestBody @Valid UpdateItemRequest updateItemRequest
+    ){
         ItemDTO updatedItem = catalogService.updateItem(id, updateItemRequest);
+        return ResponseEntity.ok(modelMapper.map(updatedItem, ItemResponse.class));
+    }
 
-        ItemResponse itemResponse = modelMapper.map(updatedItem,ItemResponse.class);
-
-        return ResponseEntity.ok(itemResponse);
+    @Operation(summary="Delete item", description="Delete item by id")
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> deleteItem(@PathVariable UUID id) {
+        catalogService.deleteItem(id);
+        return ResponseEntity.noContent().build();
     }
 }

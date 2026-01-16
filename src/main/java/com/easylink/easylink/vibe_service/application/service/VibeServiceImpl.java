@@ -4,18 +4,21 @@ import com.easylink.easylink.entities.VibeAccount;
 import com.easylink.easylink.exceptions.VibeLimitExceededException;
 import com.easylink.easylink.repositories.VibeAccountRepository;
 import com.easylink.easylink.vibe_service.application.dto.CreateVibeCommand;
+import com.easylink.easylink.vibe_service.application.dto.MiniVibeDto;
 import com.easylink.easylink.vibe_service.application.dto.UpdateVibeCommand;
 import com.easylink.easylink.vibe_service.application.dto.VibeDto;
 import com.easylink.easylink.vibe_service.application.mapper.VibeDtoMapper;
 import com.easylink.easylink.vibe_service.application.port.in.vibe.*;
 import com.easylink.easylink.vibe_service.application.port.out.VibeFieldRepositoryPort;
 import com.easylink.easylink.vibe_service.application.port.out.VibeRepositoryPort;
+import com.easylink.easylink.vibe_service.domain.interaction.InteractionType;
 import com.easylink.easylink.vibe_service.domain.model.*;
 import com.easylink.easylink.vibe_service.web.dto.UpdateVibeRequest;
 import com.easylink.easylink.vibe_service.web.dto.VibeFieldDTO;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import com.easylink.easylink.vibe_service.application.port.out.InteractionRepositoryPort;
 
 import java.util.List;
 import java.util.Optional;
@@ -30,6 +33,7 @@ public class VibeServiceImpl implements CreateVibeUseCase, UpdateVibeUseCase, De
     private final VibeFieldRepositoryPort vibeFieldRepositoryPort;
     private final VibeAccountRepository vibeAccountRepository;
     private final VibeRateLimitPort vibeRateLimitPort;
+    private final InteractionRepositoryPort interactionRepositoryPort;
 
     @Override
     public VibeDto create(CreateVibeCommand command, String vibeAccountId) {
@@ -39,7 +43,7 @@ public class VibeServiceImpl implements CreateVibeUseCase, UpdateVibeUseCase, De
             throw new EntityNotFoundException("Vibe account not found: " + vibeAccountId);
         }
 
-        long existingVibeCount = vibeRepositoryPort.countByVibeAccountId(UUID.fromString(vibeAccountId));
+        long existingVibeCount = vibeRepositoryPort.countActiveByVibeAccountId(UUID.fromString(vibeAccountId));
         if(!vibeRateLimitPort.canCreateVibe(vibeAccountId, existingVibeCount)){
             throw new VibeLimitExceededException("Vibe limit exceeded for account: "+existingAccount.get().getEmail());
         }
@@ -63,7 +67,7 @@ public class VibeServiceImpl implements CreateVibeUseCase, UpdateVibeUseCase, De
                         default:
                             field = new LinkField();
                             break;
-                   }
+                    }
                     field.setLabel(dto.getLabel());
                     field.setType(dto.getType());
                     field.setValue(dto.getValue());
@@ -158,21 +162,24 @@ public class VibeServiceImpl implements CreateVibeUseCase, UpdateVibeUseCase, De
 
     @Override
     public void delete(UUID id, UUID accountId) {
-        Vibe vibe = vibeRepositoryPort.findById(id).orElseThrow(()->new RuntimeException("Vibe not found"));
+        Vibe vibe = vibeRepositoryPort.findById(id)
+                .orElseThrow(() -> new RuntimeException("Vibe not found"));
 
-        if(!vibe.getVibeAccountId().equals(accountId)){
+        if (!vibe.getVibeAccountId().equals(accountId)) {
             throw new SecurityException("Access denied");
         }
 
-        vibeRepositoryPort.delete(vibe);
+        vibe.setDeletedAt(java.time.LocalDateTime.now());
+        vibeRepositoryPort.save(vibe);
 
         vibeRateLimitPort.decrementVibe(accountId.toString());
     }
 
+
     @Override
     public List<VibeDto> findAllByVibeAccountId(UUID accountId) {
 
-        List<Vibe> vibeDtoList = vibeRepositoryPort.findAllByAccountId(accountId);
+        List<Vibe> vibeDtoList = vibeRepositoryPort.findAllActiveByAccountId(accountId);
 
         List<VibeDto> dtoList = vibeDtoList.stream().map(VibeDtoMapper::toDto).toList();
 
@@ -188,7 +195,9 @@ public class VibeServiceImpl implements CreateVibeUseCase, UpdateVibeUseCase, De
     @Override
     public List<VibeDto> findAllById(UUID id) {
 
-        List<Vibe> vibeDtoList = vibeRepositoryPort.findAllById(id);
+        List<Vibe> vibeDtoList = vibeRepositoryPort.findActiveById(id)
+                .map(List::of)
+                .orElseGet(List::of);
 
         List<VibeDto> dtoList = vibeDtoList.stream().map(VibeDtoMapper::toDto).toList();
 
@@ -207,11 +216,66 @@ public class VibeServiceImpl implements CreateVibeUseCase, UpdateVibeUseCase, De
 
 
     @Override
-    public VibeDto getVibeById(UUID id) {
-        Vibe vibe = vibeRepositoryPort.findById(id).orElseThrow(()->new RuntimeException("Vibe not found"));
+    public VibeDto getVibeById(UUID id, String viewerAccountId) {
+        // 1) load target vibe (как раньше)
+        Vibe vibe = vibeRepositoryPort.findActiveById(id)
+                .orElseThrow(() -> new RuntimeException("Vibe not found"));
 
         VibeDto vibeDto = VibeDtoMapper.toDto(vibe);
 
+        // 2) subscriberCount (total active SUBSCRIBE to this target)
+        long subscriberCount = interactionRepositoryPort.countActiveByTarget(
+                id, InteractionType.SUBSCRIBE
+        );
+        vibeDto.setSubscriberCount(subscriberCount);
+
+        // 3) subscriberVibes (viewer’s vibes subscribed to this target)
+        if (viewerAccountId == null || viewerAccountId.isBlank()) {
+            vibeDto.setSubscriberVibes(List.of());
+            return vibeDto;
+        }
+
+        UUID accountId;
+        try {
+            accountId = UUID.fromString(viewerAccountId);
+        } catch (IllegalArgumentException ex) {
+            vibeDto.setSubscriberVibes(List.of());
+            return vibeDto;
+        }
+
+        List<Vibe> myVibes = vibeRepositoryPort.findAllByAccountId(accountId);
+        if (myVibes == null || myVibes.isEmpty()) {
+            vibeDto.setSubscriberVibes(List.of());
+            return vibeDto;
+        }
+
+        List<UUID> myVibeIds = myVibes.stream().map(Vibe::getId).toList();
+
+        List<UUID> subscribedIds = interactionRepositoryPort
+                .findActiveSubscriberVibeIdsForTargetAndSubscriberIn(
+                        id,
+                        InteractionType.SUBSCRIBE,
+                        myVibeIds
+                );
+
+        if (subscribedIds == null || subscribedIds.isEmpty()) {
+            vibeDto.setSubscriberVibes(List.of());
+            return vibeDto;
+        }
+
+        List<MiniVibeDto> minis = myVibes.stream()
+                .filter(v -> subscribedIds.stream().anyMatch(x -> x.equals(v.getId())))
+                .map(v -> {
+                    MiniVibeDto m = new MiniVibeDto();
+                    m.setId(v.getId());
+                    m.setName(v.getName());
+                    m.setType(v.getType());
+                    m.setPhoto(v.getPhoto());
+                    return m;
+                })
+                .toList();
+
+        vibeDto.setSubscriberVibes(minis);
         return vibeDto;
     }
 }
