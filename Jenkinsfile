@@ -1,32 +1,25 @@
 pipeline {
   agent any
-  options {
-    timestamps()
-    disableConcurrentBuilds()
-    durabilityHint('PERFORMANCE_OPTIMIZED')
-  }
+  options { timestamps(); disableConcurrentBuilds(); durabilityHint('PERFORMANCE_OPTIMIZED') }
 
   environment {
     DOCKER_HOST = 'tcp://host.docker.internal:2375'
     IMAGE_TAG   = 'ymk/auth-service:latest'
 
-    // Change if your Dockerfile is not in repo root
-    DOCKERFILE_PATH = 'Dockerfile'
+    // repo is checked out into Jenkins workspace
+    BACKEND_DIR = 'EasyLinkBackEnd'   // <- repo folder in C:\ymk (as you showed)
+    DOCKERFILE  = 'Dockerfile'
   }
 
   stages {
-
     stage('preflight') {
       steps {
         sh '''
           set -eu
           echo "[preflight] DOCKER_HOST=$DOCKER_HOST"
           docker -H "$DOCKER_HOST" version
-
-          echo "[preflight] compose tool (host plugin)"
           docker -H "$DOCKER_HOST" compose version
 
-          # Detect host path mount for Windows Desktop
           CAND1=/run/desktop/mnt/host/c/ymk
           CAND2=/host_mnt/c/ymk
 
@@ -41,64 +34,26 @@ pipeline {
 
           echo "[preflight] COMPOSE_ROOT=$COMPOSE_ROOT"
           printf "COMPOSE_ROOT=%s" "$COMPOSE_ROOT" > .compose_root.env
-
-          docker -H "$DOCKER_HOST" run --rm -v "$COMPOSE_ROOT:/w" busybox sh -lc 'ls -la /w | head -n 80'
         '''
       }
     }
 
     stage('checkout') {
-      steps {
-        checkout scm
-      }
-    }
-
-    stage('build jar') {
-      steps {
-        sh '''
-          set -eu
-          rm -f app.jar
-
-          CID=$(docker -H "$DOCKER_HOST" create gradle:8.9-jdk21 bash -lc 'sleep infinity')
-          echo "[jar] temp container: $CID"
-          docker -H "$DOCKER_HOST" start "$CID" >/dev/null
-
-          docker -H "$DOCKER_HOST" cp . "$CID:/app"
-
-          docker -H "$DOCKER_HOST" exec "$CID" bash -lc '
-            set -e
-            cd /app
-            gradle clean bootJar -x test
-            echo "[gradle] built jars:"
-            ls -la build/libs
-          '
-
-          JAR_IN=$(docker -H "$DOCKER_HOST" exec "$CID" bash -lc 'ls -1 /app/build/libs/*.jar | head -n 1')
-          echo "[jar] jar in container: $JAR_IN"
-
-          docker -H "$DOCKER_HOST" cp "$CID:$JAR_IN" ./app.jar
-          ls -la app.jar
-
-          docker -H "$DOCKER_HOST" rm -f "$CID" >/dev/null
-        '''
-        stash name: 'appjar', includes: 'app.jar'
-      }
+      steps { checkout scm }
     }
 
     stage('build image') {
       steps {
-        unstash 'appjar'
         sh '''
           set -eu
-          test -f app.jar
+          echo "[image] build $IMAGE_TAG from $BACKEND_DIR/$DOCKERFILE"
+          test -f "$BACKEND_DIR/$DOCKERFILE"
 
-          echo "[image] building $IMAGE_TAG using $DOCKERFILE_PATH"
           docker -H "$DOCKER_HOST" build \
             -t "$IMAGE_TAG" \
-            -f "$DOCKERFILE_PATH" \
-            .
+            -f "$BACKEND_DIR/$DOCKERFILE" \
+            "$BACKEND_DIR"
 
-          echo "[image] built:"
           docker -H "$DOCKER_HOST" image ls --format '{{.Repository}}:{{.Tag}}  {{.ID}}  {{.Size}}' | grep -E '^ymk/auth-service:latest' || true
         '''
       }
@@ -110,7 +65,7 @@ pipeline {
           sh '''
             set -eu
             . ./.compose_root.env
-            echo "[secrets] target compose root: $COMPOSE_ROOT"
+            echo "[secrets] COMPOSE_ROOT=$COMPOSE_ROOT"
 
             docker -H "$DOCKER_HOST" run --rm -v "$COMPOSE_ROOT:/w" busybox sh -lc '
               mkdir -p /w/secrets
@@ -118,13 +73,11 @@ pipeline {
               rm -f /w/secrets/private.pem || true
             '
 
-            echo "[secrets] uploading private.pem from Jenkins secret file"
             cat "$JWT_PEM_FILE" | docker -H "$DOCKER_HOST" run --rm -i -v "$COMPOSE_ROOT:/w" busybox sh -lc '
               cat > /w/secrets/private.pem
               chmod 400 /w/secrets/private.pem || true
             '
 
-            echo "[secrets] verify"
             docker -H "$DOCKER_HOST" run --rm -v "$COMPOSE_ROOT:/w" busybox sh -lc '
               ls -la /w/secrets
               test -f /w/secrets/private.pem
@@ -138,47 +91,39 @@ pipeline {
       steps {
         sh '''
           set -eu
-          echo "[net] ensure external network: ymk"
           docker -H "$DOCKER_HOST" network inspect ymk >/dev/null 2>&1 || docker -H "$DOCKER_HOST" network create ymk >/dev/null
           docker -H "$DOCKER_HOST" network ls | grep -E '\\bymk\\b' || true
         '''
       }
     }
 
-    stage('deploy auth-service (from C:\\ymk)') {
+    stage('deploy auth-service') {
       steps {
         sh '''
           set -eu
           . ./.compose_root.env
           echo "[deploy] COMPOSE_ROOT=$COMPOSE_ROOT"
 
-          # Remove old container first (prevents interactive prompts / broken recreate state)
+          # hard remove old container (no interactive prompts ever)
           docker -H "$DOCKER_HOST" compose -p ymk -f "$COMPOSE_ROOT/docker-compose.yml" rm -sf auth-service || true
 
-          # Bring up service (Compose v2)
+          # recreate with latest image
           docker -H "$DOCKER_HOST" compose -p ymk -f "$COMPOSE_ROOT/docker-compose.yml" up -d --no-deps --force-recreate auth-service
+
+          docker -H "$DOCKER_HOST" compose -p ymk -f "$COMPOSE_ROOT/docker-compose.yml" ps
         '''
       }
     }
 
-    stage('check secret in container') {
+    stage('logs') {
       steps {
         sh '''
           set -eu
-          echo "[check] container + secret path"
-
           CID=$(docker -H "$DOCKER_HOST" ps -q -f name=ymk-auth-service-1 || true)
-          echo "[check] CID=$CID"
-          test -n "$CID"
-
-          docker -H "$DOCKER_HOST" exec "$CID" sh -lc '
-            set -e
-            ls -la /run/secrets || true
-            ls -la /run/secrets/private.pem || true
-          ' || true
-
-          echo "[check] last logs"
-          docker -H "$DOCKER_HOST" logs --tail 150 "$CID" || true
+          echo "[logs] CID=$CID"
+          if [ -n "$CID" ]; then
+            docker -H "$DOCKER_HOST" logs --tail 200 "$CID" || true
+          fi
         '''
       }
     }
@@ -192,8 +137,6 @@ pipeline {
         docker -H "$DOCKER_HOST" ps -a | head -n 30
       '''
     }
-    failure {
-      echo 'Backend deploy failed!'
-    }
+    failure { echo 'Backend deploy failed!' }
   }
 }
