@@ -31,4 +31,5 @@ public class VibeAccount {
     private Boolean isEmailVerified = false;
     private String emailVerificationToken;
     private LocalDateTime tokenExpiry;
+    private Instant lastFailedAt;
 }
