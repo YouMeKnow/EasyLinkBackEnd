@@ -41,8 +41,12 @@ public class VibeAccountService {
     private static final int MAX_FAILED_ATTEMPTS = 5;
     private static final Duration LOCK_DURATION = Duration.ofMinutes(30);
 
-    private final JwtService jwtService;
+    private static final long BASE_DELAY_MS = 400; // 0.4s
+    private static final long MAX_DELAY_MS = 10_000;  // 10s
+    private static final long JITTER_MS = 250; // random 0...250ms
+    private static final Duration FAIL_WINDOW = Duration.ofHours(2);
 
+    private final JwtService jwtService;
     private final EmailVerificationService emailVerificationService;
 
     private AssociativeEntry createAssociativeEntry(AssociativeEntryDTO dto) {
@@ -254,7 +258,10 @@ public class VibeAccountService {
     public String checkPassword(PasswordLoginDTO dto) {
         List<VibeAccount> list = vibeAccountRepository.findByEmail(dto.getEmail());
 
+        // same answer (to avoid revealing the existence of email)
         if (list.isEmpty()) {
+            // fixed delay
+            sleepMs(250);
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials");
         }
         if (list.size() > 1) throw new DuplicateAccountException("More than one account with this email!");
@@ -262,16 +269,24 @@ public class VibeAccountService {
         VibeAccount acc = list.get(0);
 
         if (Boolean.FALSE.equals(acc.getIsEmailVerified())) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Please verify your email before logging in.");
+            sleepMs(250);
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials");
         }
 
         if (acc.getPasswordHash() == null || acc.getPasswordHash().isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Password login is not enabled for this account.");
-        }
-
-        if (!passwordEncoder.matches(dto.getPassword(), acc.getPasswordHash())) {
+            sleepMs(250);
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials");
         }
+
+        resetAttemptsIfExpired(acc);
+
+        boolean ok = passwordEncoder.matches(dto.getPassword(), acc.getPasswordHash());
+        if (!ok) {
+            registerPasswordFail(acc);
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials");
+        }
+
+        registerPasswordSuccess(acc);
 
         amplitudeService.sendEvent(dto.getEmail(), "User login", Map.of(
                 "source", "backend",
@@ -355,5 +370,66 @@ public class VibeAccountService {
                 .findByIsEmailVerifiedFalseAndTokenExpiryBefore(LocalDateTime.now());
 
         vibeAccountRepository.deleteAll(expiredAccounts);
+    }
+
+    private long computeProgressiveDelayMs(int failedAttempts){
+        // failedAttempts starts from 1
+        int n = Math.max(1, failedAttempts);
+
+        // exponential backoff: BASE * 2^(n-1)
+        long exp = BASE_DELAY_MS * (1L << Math.min(20, n - 1)); // cap shift safety
+        long delay = Math.min(MAX_DELAY_MS, exp);
+
+        long jitter = (long) (Math.random() * JITTER_MS);
+        return Math.min(MAX_DELAY_MS, delay + jitter);
+    }
+
+    private void sleepMs(long ms) {
+        try {
+            Thread.sleep(ms);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    private void registerPasswordFail(VibeAccount acc) {
+        acc.setFailedAttempts(acc.getFailedAttempts() + 1);
+        acc.setLastFailedAt(Instant.now());
+        vibeAccountRepository.save(acc);
+
+        long delay = computeProgressiveDelayMs(acc.getFailedAttempts());
+        sleepMs(delay);
+    }
+
+    private void registerPasswordSuccess(VibeAccount acc) {
+        if (acc.getFailedAttempts() != 0 || acc.getLastFailedAt() != null) {
+            acc.setFailedAttempts(0);
+            acc.setLastFailedAt(null);
+        }
+        acc.setLastLogin(LocalDateTime.now());
+        vibeAccountRepository.save(acc);
+    }
+
+    private void resetAttemptsIfExpired(VibeAccount acc) {
+        Instant last = acc.getLastFailedAt();
+        if (last == null) return;
+
+        Instant cutoff = Instant.now().minus(FAIL_WINDOW);
+        if (last.isBefore(cutoff)) {
+            acc.setFailedAttempts(0);
+            acc.setLastFailedAt(null);
+            vibeAccountRepository.save(acc);
+        }
+    }
+
+    public VibeAccount loadByEmail(String email) {
+        List<VibeAccount> list = vibeAccountRepository.findByEmail(email);
+        if (list.isEmpty()) {
+            throw new UsernameNotFoundException("No account found with email: " + email);
+        }
+        if (list.size() > 1) {
+            throw new IllegalStateException("Multiple accounts found with same email: " + email);
+        }
+        return list.get(0);
     }
 }
