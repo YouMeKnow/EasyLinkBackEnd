@@ -1,7 +1,4 @@
 spring:
-#  jackson:
-#    deserialization:
-#      fail-on-unknown-properties: true
   security:
     oauth2:
       resourceserver:
