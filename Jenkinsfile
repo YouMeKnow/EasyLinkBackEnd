@@ -12,17 +12,23 @@ pipeline {
       steps {
         sh '''
           set -eu
+    
           echo "[preflight] DOCKER_HOST=$DOCKER_HOST"
+    
+          # Sanity checks: Jenkins container -> Docker Desktop
           docker -H "$DOCKER_HOST" version
           docker -H "$DOCKER_HOST" compose version
 
-          # This path exists INSIDE the Jenkins container because you mount:
-          #   C:/ymk -> /workspace/ymk
-          COMPOSE_FILE=/workspace/ymk/docker-compose.yml
+          COMPOSE_FILE='C:\\ymk\\docker-compose.yml'
           echo "[preflight] COMPOSE_FILE=$COMPOSE_FILE"
-          test -f "$COMPOSE_FILE"
-
+    
+          # Validate that Docker Desktop can actually read the compose file
+          docker -H "$DOCKER_HOST" compose -f "$COMPOSE_FILE" config >/dev/null
+    
+          # Persist for later stages
           printf "COMPOSE_FILE=%s\n" "$COMPOSE_FILE" > .compose_root.env
+    
+          echo "[preflight] OK"
         '''
       }
     }
