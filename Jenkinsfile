@@ -1,6 +1,12 @@
 pipeline {
   agent any
-  options { timestamps(); disableConcurrentBuilds(); durabilityHint('PERFORMANCE_OPTIMIZED') }
+
+  options {
+    timestamps()
+    disableConcurrentBuilds()
+    durabilityHint('PERFORMANCE_OPTIMIZED')
+    skipDefaultCheckout(true)
+  }
 
   environment {
     DOCKER_HOST = 'tcp://host.docker.internal:2375'
@@ -8,33 +14,33 @@ pipeline {
   }
 
   stages {
+
     stage('preflight') {
       steps {
         sh '''
           set -eu
-    
+
           echo "[preflight] DOCKER_HOST=$DOCKER_HOST"
-    
-          # Sanity checks: Jenkins container -> Docker Desktop
+
           docker -H "$DOCKER_HOST" version
           docker -H "$DOCKER_HOST" compose version
 
           COMPOSE_FILE=/workspace/ymk/docker-compose.yml
           echo "[preflight] COMPOSE_FILE=$COMPOSE_FILE"
-  
+
           test -f "$COMPOSE_FILE"
           docker -H "$DOCKER_HOST" compose -f "$COMPOSE_FILE" config >/dev/null
-    
-          # Persist for later stages
+
           printf "COMPOSE_FILE=%s\n" "$COMPOSE_FILE" > .compose_root.env
-    
           echo "[preflight] OK"
         '''
       }
     }
 
     stage('checkout') {
-      steps { checkout scm }
+      steps {
+        checkout scm
+      }
     }
 
     stage('build image') {
@@ -51,39 +57,29 @@ pipeline {
             CONTEXT="EasyLinkBackEnd"
             DF="EasyLinkBackEnd/Dockerfile"
           else
-            echo "ERROR: Dockerfile not found (./Dockerfile or ./EasyLinkBackEnd/Dockerfile)"
+            echo "ERROR: Dockerfile not found"
             exit 1
           fi
 
           echo "[image] build $IMAGE_TAG using $DF (context=$CONTEXT)"
           docker -H "$DOCKER_HOST" build -t "$IMAGE_TAG" -f "$DF" "$CONTEXT"
 
-          docker -H "$DOCKER_HOST" image ls --format '{{.Repository}}:{{.Tag}}  {{.ID}}  {{.Size}}' | grep -E '^ymk/auth-service:latest' || true
+          docker -H "$DOCKER_HOST" image ls \
+            --format '{{.Repository}}:{{.Tag}}  {{.ID}}  {{.Size}}' \
+            | grep '^ymk/auth-service:latest' || true
         '''
       }
     }
 
-    stage('prepare secrets (to C:\\ymk\\secrets)') {
+    stage('secrets (verify only)') {
       steps {
-        withCredentials([file(credentialsId: 'jwt-private-pem', variable: 'JWT_PEM_FILE')]) {
-          sh '''
-            set -eu
+        sh '''
+          set -eu
+          echo "[secrets] verify existing host secret"
 
-            # Write directly into the mounted host folder (C:\\ymk) via the container path.
-            TARGET_DIR=/workspace/ymk/secrets
-            echo "[secrets] TARGET_DIR=$TARGET_DIR"
-
-            mkdir -p "$TARGET_DIR"
-            chmod 700 "$TARGET_DIR" || true
-
-            rm -f "$TARGET_DIR/private.pem" || true
-            cp "$JWT_PEM_FILE" "$TARGET_DIR/private.pem"
-            chmod 400 "$TARGET_DIR/private.pem" || true
-
-            ls -la "$TARGET_DIR"
-            test -f "$TARGET_DIR/private.pem"
-          '''
-        }
+          test -f /workspace/ymk/secrets/private.pem
+          ls -la /workspace/ymk/secrets
+        '''
       }
     }
 
@@ -91,7 +87,9 @@ pipeline {
       steps {
         sh '''
           set -eu
-          docker -H "$DOCKER_HOST" network inspect ymk >/dev/null 2>&1 || docker -H "$DOCKER_HOST" network create ymk >/dev/null
+          docker -H "$DOCKER_HOST" network inspect ymk >/dev/null 2>&1 \
+            || docker -H "$DOCKER_HOST" network create ymk >/dev/null
+
           docker -H "$DOCKER_HOST" network ls | grep -E '\\bymk\\b' || true
         '''
       }
@@ -103,12 +101,8 @@ pipeline {
           set -eu
           . ./.compose_root.env
           echo "[deploy] COMPOSE_FILE=$COMPOSE_FILE"
-          test -f "$COMPOSE_FILE"
 
-          # hard remove old container (no interactive prompts ever)
           docker -H "$DOCKER_HOST" compose -p ymk -f "$COMPOSE_FILE" rm -sf auth-service || true
-
-          # recreate with latest image
           docker -H "$DOCKER_HOST" compose -p ymk -f "$COMPOSE_FILE" up -d --no-deps --force-recreate auth-service
 
           docker -H "$DOCKER_HOST" compose -p ymk -f "$COMPOSE_FILE" ps
@@ -122,6 +116,7 @@ pipeline {
           set -eu
           CID=$(docker -H "$DOCKER_HOST" ps -q -f name=ymk-auth-service-1 || true)
           echo "[logs] CID=$CID"
+
           if [ -n "$CID" ]; then
             docker -H "$DOCKER_HOST" logs --tail 200 "$CID" || true
           fi
@@ -135,9 +130,15 @@ pipeline {
       sh '''
         set +e
         echo "[post] docker ps (top 30)"
-        docker -H "$DOCKER_HOST" ps -a | head -n 30
+        docker -H "$DOCKER_HOST" ps -a > /tmp/ps.txt || true
+        head -n 30 /tmp/ps.txt || true
       '''
     }
-    failure { echo 'Backend deploy failed!' }
+    success {
+      echo 'Backend deploy successful!'
+    }
+    failure {
+      echo 'Backend deploy failed!'
+    }
   }
 }
