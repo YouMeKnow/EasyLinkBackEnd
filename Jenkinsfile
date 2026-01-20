@@ -19,10 +19,10 @@ pipeline {
           docker -H "$DOCKER_HOST" version
           docker -H "$DOCKER_HOST" compose version
 
-          COMPOSE_FILE='C:\\ymk\\docker-compose.yml'
+          COMPOSE_FILE=/workspace/ymk/docker-compose.yml
           echo "[preflight] COMPOSE_FILE=$COMPOSE_FILE"
-    
-          # Validate that Docker Desktop can actually read the compose file
+  
+          test -f "$COMPOSE_FILE"
           docker -H "$DOCKER_HOST" compose -f "$COMPOSE_FILE" config >/dev/null
     
           # Persist for later stages
