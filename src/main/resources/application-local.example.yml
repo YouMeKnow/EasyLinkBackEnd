@@ -1,0 +1,9 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/easylink
+    username: postgres
+    password: postgres
+
+app:
+  mail:
+    mode: mock
