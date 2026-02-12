@@ -24,13 +24,17 @@ public class EmailVerificationService {
     private final JavaMailSender mailSender;
 
     @Value("${app.verification.base-url}")
-    private String baseUrl; // https://youmeknow.com
+    private String baseUrl; // e.g. https://youmeknow.com
 
     @Value("${app.mail.from:${SPRING_MAIL_USERNAME:}}")
     private String fromAddress; // by default = SMTP username
 
     @Value("${app.verification.ttl-hours:24}")
     private long ttlHours;
+
+    // smtp | mock
+    @Value("${app.mail.mode:smtp}")
+    private String mailMode;
 
     public boolean verifyToken(String token) {
         Optional<VibeAccount> optionalAccount = vibeAccountRepository.findByEmailVerificationToken(token);
@@ -70,6 +74,12 @@ public class EmailVerificationService {
                 .build()
                 .toUriString();
 
+        // LOCAL/DEV
+        if ("mock".equalsIgnoreCase(mailMode)) {
+            System.out.println("[MAIL-MOCK] Verify link for " + account.getEmail() + ": " + link);
+            return;
+        }
+
         String html = "<!DOCTYPE html>" +
                 "<html><head><meta charset=\"UTF-8\"></head><body>" +
                 "<table style=\"width:100%;background-color:#FFFFFF;padding:20px 0;\">" +
@@ -90,6 +100,7 @@ public class EmailVerificationService {
         try {
             MimeMessage message = mailSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+
             if (fromAddress != null && !fromAddress.isBlank()) {
                 helper.setFrom(fromAddress);
             }
@@ -104,6 +115,11 @@ public class EmailVerificationService {
     }
 
     public void sendLoginCodeEmail(VibeAccount acc, String code) {
+        if ("mock".equalsIgnoreCase(mailMode)) {
+            System.out.println("[MAIL-MOCK] Login code for " + acc.getEmail() + ": " + code);
+            return;
+        }
+
         String html = "<!DOCTYPE html>" +
                 "<html><head><meta charset=\"UTF-8\"></head><body>" +
                 "<table style=\"width:100%;background-color:#FFFFFF;padding:20px 0;\">" +
@@ -124,12 +140,14 @@ public class EmailVerificationService {
         try {
             MimeMessage message = mailSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+
             if (fromAddress != null && !fromAddress.isBlank()) {
                 helper.setFrom(fromAddress);
             }
             helper.setTo(acc.getEmail());
             helper.setSubject("Your login code");
             helper.setText(html, true);
+
             mailSender.send(message);
         } catch (MessagingException e) {
             throw new RuntimeException("Failed to send login code email", e);
