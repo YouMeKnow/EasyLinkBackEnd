@@ -27,7 +27,7 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
-public class VibeServiceImpl implements CreateVibeUseCase, UpdateVibeUseCase, DeleteVibeUseCase, GetVibeUseCase, GetVibeByIdUseCase {
+public class VibeServiceImpl implements CreateVibeUseCase, UpdateVibeUseCase, DeleteVibeUseCase, GetVibeUseCase, GetVibeByIdUseCase, GetFollowingUseCase {
 
     private final VibeRepositoryPort vibeRepositoryPort;
     private final VibeFieldRepositoryPort vibeFieldRepositoryPort;
@@ -229,7 +229,13 @@ public class VibeServiceImpl implements CreateVibeUseCase, UpdateVibeUseCase, De
         );
         vibeDto.setSubscriberCount(subscriberCount);
 
-        // 3) subscriberVibes (viewer’s vibes subscribed to this target)
+        // 3) followingCount (total active SUBSCRIBE made by this vibe)
+        long followingCount = interactionRepositoryPort.countActiveBySubscriber(
+                id, InteractionType.SUBSCRIBE
+        );
+        vibeDto.setFollowingCount(followingCount);
+
+        // 4) subscriberVibes (viewer’s vibes subscribed to this target)
         if (viewerAccountId == null || viewerAccountId.isBlank()) {
             vibeDto.setSubscriberVibes(List.of());
             return vibeDto;
@@ -277,5 +283,13 @@ public class VibeServiceImpl implements CreateVibeUseCase, UpdateVibeUseCase, De
 
         vibeDto.setSubscriberVibes(minis);
         return vibeDto;
+    }
+
+    @Override
+    public List<MiniVibeDto> getFollowing(UUID vibeId) {
+        return interactionRepositoryPort.findFollowingMini(
+                vibeId,
+                InteractionType.SUBSCRIBE
+        );
     }
 }

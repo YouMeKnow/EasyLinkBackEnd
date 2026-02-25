@@ -23,4 +23,6 @@ public class VibeDto {
     private List<VibeFieldDTO> fieldsDTO;
     private Long subscriberCount;
     private List<MiniVibeDto> subscriberVibes;
+    private Long followingCount;
+
 }

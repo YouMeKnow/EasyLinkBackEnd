@@ -16,7 +16,7 @@ public class VibeResponseMapper {
         response.setFieldsDTO(vibeDto.getFieldsDTO());
         response.setPhoto(vibeDto.getPhoto());
         response.setSubscriberCount(vibeDto.getSubscriberCount());
-
+        response.setFollowingCount(vibeDto.getFollowingCount());
         if (vibeDto.getSubscriberVibes() != null) {
             response.setSubscriberVibes(
                     vibeDto.getSubscriberVibes().stream().map(v -> {

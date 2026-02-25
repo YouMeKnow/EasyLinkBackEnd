@@ -6,6 +6,7 @@ import com.easylink.easylink.vibe_service.domain.interaction.Interaction;
 import com.easylink.easylink.vibe_service.domain.interaction.InteractionType;
 import com.easylink.easylink.vibe_service.domain.model.Vibe;
 import org.springframework.stereotype.Repository;
+import com.easylink.easylink.vibe_service.application.dto.MiniVibeDto;
 
 import java.util.List;
 import java.util.Optional;
@@ -91,5 +92,17 @@ public class JpaInteractionRepositoryAdapter implements InteractionRepositoryPor
         return delegateRepository.findActiveSubscriberVibeIdsForTargetAndSubscriberIn(
                 targetVibeId, type, subscriberVibeIds
         );
+    }
+
+    @Override
+    public long countActiveBySubscriber(UUID subscriberVibeId, InteractionType type) {
+        if (subscriberVibeId == null || type == null) return 0L;
+        return delegateRepository.countActiveBySubscriber(subscriberVibeId, type);
+    }
+
+    @Override
+    public List<MiniVibeDto> findFollowingMini(UUID subscriberVibeId, InteractionType type) {
+        if (subscriberVibeId == null || type == null) return List.of();
+        return delegateRepository.findFollowingMini(subscriberVibeId, type);
     }
 }
