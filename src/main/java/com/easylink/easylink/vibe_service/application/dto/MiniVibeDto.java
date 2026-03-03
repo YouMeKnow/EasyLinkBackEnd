@@ -1,13 +1,17 @@
 package com.easylink.easylink.vibe_service.application.dto;
 
 import com.easylink.easylink.vibe_service.domain.model.VibeType;
+import lombok.AllArgsConstructor;
 import lombok.Getter;
+import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 import java.util.UUID;
 
 @Getter
 @Setter
+@NoArgsConstructor
+@AllArgsConstructor
 public class MiniVibeDto {
     private UUID id;
     private String name;

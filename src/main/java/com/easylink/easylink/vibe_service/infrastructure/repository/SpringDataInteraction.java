@@ -1,5 +1,6 @@
 package com.easylink.easylink.vibe_service.infrastructure.repository;
 
+import com.easylink.easylink.vibe_service.application.dto.MiniVibeDto;
 import com.easylink.easylink.vibe_service.domain.interaction.Interaction;
 import com.easylink.easylink.vibe_service.domain.interaction.InteractionType;
 import com.easylink.easylink.vibe_service.domain.model.Vibe;
@@ -107,4 +108,27 @@ public interface SpringDataInteraction extends JpaRepository<Interaction, UUID> 
           and sv.deletedAt is null
     """)
     List<Interaction> findActiveSubscribersAlive(@Param("targetVibe") Vibe targetVibe);
+
+    @Query("""
+        select count(i)
+        from Interaction i
+        where i.subscriberVibe.id = :subscriberVibeId
+          and i.interactionType = :type
+          and i.active = true
+    """)
+    long countActiveBySubscriber(@Param("subscriberVibeId") UUID subscriberVibeId,
+                                 @Param("type") InteractionType type);
+
+    @Query("""
+        select new com.easylink.easylink.vibe_service.application.dto.MiniVibeDto(
+          v.id, v.name, v.type, v.photo
+        )
+        from Interaction i
+        join i.targetVibe v
+        where i.subscriberVibe.id = :subscriberVibeId
+          and i.interactionType = :type
+          and i.active = true
+        order by i.createdAt desc
+    """)
+    List<MiniVibeDto> findFollowingMini(UUID subscriberVibeId, InteractionType type);
 }

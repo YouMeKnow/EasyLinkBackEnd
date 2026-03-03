@@ -1,5 +1,6 @@
 package com.easylink.easylink.vibe_service.web.controller;
 
+import com.easylink.easylink.vibe_service.application.dto.MiniVibeDto;
 import com.easylink.easylink.vibe_service.application.dto.UpdateVibeCommand;
 import com.easylink.easylink.vibe_service.application.dto.VibeDto;
 import com.easylink.easylink.vibe_service.application.port.in.vibe.*;
@@ -30,6 +31,7 @@ public class VibeController {
     private final DeleteVibeUseCase deleteVibeUseCase;
     private final GetVibeUseCase getVibeUseCase;
     private final GetVibeByIdUseCase getVibeByIdUseCase;
+    private final GetFollowingUseCase getFollowingUseCase;
 
     @Operation(summary = "Create Vibe", description = "Create new Vibe based on title and fields")
     @PostMapping
@@ -90,6 +92,14 @@ public class VibeController {
         VibeDto vibeDto = getVibeByIdUseCase.getVibeById(id, viewerAccountId);
 
         return ResponseEntity.ok(VibeResponseMapper.toResponse(vibeDto));
+    }
+
+    @Operation(summary = "Get following", description = "Get vibes that this vibe is following")
+    @GetMapping("/{id}/following")
+    public ResponseEntity<List<MiniVibeDto>> getFollowing(
+            @PathVariable UUID id
+    ) {
+        return ResponseEntity.ok(getFollowingUseCase.getFollowing(id));
     }
 }
 
