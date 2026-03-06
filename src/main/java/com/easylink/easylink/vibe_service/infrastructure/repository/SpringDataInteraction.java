@@ -2,6 +2,7 @@ package com.easylink.easylink.vibe_service.infrastructure.repository;
 
 import com.easylink.easylink.vibe_service.application.dto.MiniVibeDto;
 import com.easylink.easylink.vibe_service.domain.interaction.Interaction;
+import com.easylink.easylink.vibe_service.domain.interaction.InteractionStatus;
 import com.easylink.easylink.vibe_service.domain.interaction.InteractionType;
 import com.easylink.easylink.vibe_service.domain.model.Vibe;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -48,25 +49,26 @@ public interface SpringDataInteraction extends JpaRepository<Interaction, UUID> 
         from Interaction i
         join i.targetVibe tv
         where i.active = true
+          and i.status = com.easylink.easylink.vibe_service.domain.interaction.InteractionStatus.APPROVED
           and i.interactionType = :type
           and tv.id = :targetId
           and tv.deletedAt is null
     """)
-
     long countActiveByTarget(@Param("targetId") UUID targetId, @Param("type") InteractionType type);
 
     @Query("""
-        select i.subscriberVibe.id
-        from Interaction i
-        join i.targetVibe tv
-        join i.subscriberVibe sv
-        where i.active = true
-          and i.interactionType = :type
-          and tv.id = :targetId
-          and tv.deletedAt is null
-          and sv.deletedAt is null
-          and sv.id in :subscriberIds
-    """)
+    select i.subscriberVibe.id
+    from Interaction i
+    join i.targetVibe tv
+    join i.subscriberVibe sv
+    where i.active = true
+      and i.status = com.easylink.easylink.vibe_service.domain.interaction.InteractionStatus.APPROVED
+      and i.interactionType = :type
+      and tv.id = :targetId
+      and tv.deletedAt is null
+      and sv.deletedAt is null
+      and sv.id in :subscriberIds
+""")
     List<UUID> findActiveSubscriberVibeIdsForTargetAndSubscriberIn(
             @Param("targetId") UUID targetId,
             @Param("type") InteractionType type,
@@ -128,7 +130,69 @@ public interface SpringDataInteraction extends JpaRepository<Interaction, UUID> 
         where i.subscriberVibe.id = :subscriberVibeId
           and i.interactionType = :type
           and i.active = true
+          and i.status = com.easylink.easylink.vibe_service.domain.interaction.InteractionStatus.APPROVED
         order by i.createdAt desc
     """)
     List<MiniVibeDto> findFollowingMini(UUID subscriberVibeId, InteractionType type);
+
+    @Query("""
+        select count(i) > 0
+        from Interaction i
+        join i.subscriberVibe sv
+        where i.targetVibe.id = :targetId
+          and i.interactionType = :type
+          and i.active = true
+          and i.status = :status
+          and sv.id in :subscriberIds
+          and sv.deletedAt is null
+    """)
+    boolean existsApprovedSubscription(
+            @Param("targetId") UUID targetId,
+            @Param("type") InteractionType type,
+            @Param("status") InteractionStatus status,
+            @Param("subscriberIds") List<UUID> subscriberIds
+    );
+
+    @Query("""
+    select i
+    from Interaction i
+    join i.subscriberVibe sv
+    where i.targetVibe = :targetVibe
+      and i.active = true
+      and i.interactionType = com.easylink.easylink.vibe_service.domain.interaction.InteractionType.SUBSCRIBE
+      and i.status = com.easylink.easylink.vibe_service.domain.interaction.InteractionStatus.APPROVED
+      and sv.deletedAt is null
+""")
+    List<Interaction> findApprovedSubscribersAlive(@Param("targetVibe") Vibe targetVibe);
+
+    @Query("""
+    select i
+    from Interaction i
+    join i.subscriberVibe sv
+    where i.targetVibe = :targetVibe
+      and i.active = true
+      and i.interactionType = com.easylink.easylink.vibe_service.domain.interaction.InteractionType.SUBSCRIBE
+      and i.status = com.easylink.easylink.vibe_service.domain.interaction.InteractionStatus.PENDING
+      and sv.deletedAt is null
+    order by i.createdAt desc
+""")
+    List<Interaction> findPendingSubscribersAlive(@Param("targetVibe") Vibe targetVibe);
+
+    @Query("""
+    select count(i) > 0
+    from Interaction i
+    join i.subscriberVibe sv
+    where i.targetVibe.id = :targetId
+      and i.interactionType = :type
+      and i.active = true
+      and i.status = :status
+      and sv.id in :subscriberIds
+      and sv.deletedAt is null
+""")
+    boolean existsSubscriptionByStatus(
+            @Param("targetId") UUID targetId,
+            @Param("type") InteractionType type,
+            @Param("status") InteractionStatus status,
+            @Param("subscriberIds") List<UUID> subscriberIds
+    );
 }

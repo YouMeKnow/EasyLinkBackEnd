@@ -1,5 +1,8 @@
 package com.easylink.easylink.vibe_service.web.dto;
 
+import com.easylink.easylink.vibe_service.domain.interaction.InteractionStatus;
+import com.easylink.easylink.vibe_service.domain.model.SubscribeMode;
+import com.easylink.easylink.vibe_service.domain.model.VibePrivacy;
 import com.easylink.easylink.vibe_service.domain.model.VibeType;
 import lombok.Getter;
 import lombok.Setter;
@@ -21,4 +24,10 @@ public class VibeResponse {
     private Long subscriberCount;
     private List<MiniVibeResponse> subscriberVibes;
     private Long followingCount;
+
+    public boolean hasAccess;
+    public boolean owner;
+    public InteractionStatus mySubscriptionStatus;
+    public VibePrivacy privacy;
+    public SubscribeMode subscribeMode;
 }
