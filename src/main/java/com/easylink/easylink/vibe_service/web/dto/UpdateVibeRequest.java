@@ -1,5 +1,7 @@
 package com.easylink.easylink.vibe_service.web.dto;
 
+import com.easylink.easylink.vibe_service.domain.model.SubscribeMode;
+import com.easylink.easylink.vibe_service.domain.model.VibePrivacy;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -13,5 +15,7 @@ public class UpdateVibeRequest {
     private String description;
     private List<UUID> fieldIds;
     private String photo;
-    private List<VibeFieldDTO> fieldsDTO; // вот тут массив объектов, а не id!
+    private List<VibeFieldDTO> fieldsDTO;
+    private VibePrivacy privacy;
+    private SubscribeMode subscribeMode;
 }

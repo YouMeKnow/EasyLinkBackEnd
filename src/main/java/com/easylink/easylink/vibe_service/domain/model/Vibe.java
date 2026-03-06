@@ -53,4 +53,11 @@ public class Vibe {
 
     @Column(name = "deleted_at")
     private LocalDateTime deletedAt;
+
+    @Enumerated(EnumType.STRING)
+    private VibePrivacy privacy = VibePrivacy.PUBLIC;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private SubscribeMode subscribeMode = SubscribeMode.OPEN;
 }

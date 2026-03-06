@@ -3,6 +3,7 @@ package com.easylink.easylink.vibe_service.infrastructure.repository;
 import com.easylink.easylink.vibe_service.application.dto.InteractionWithOffersDTO;
 import com.easylink.easylink.vibe_service.application.port.out.InteractionRepositoryPort;
 import com.easylink.easylink.vibe_service.domain.interaction.Interaction;
+import com.easylink.easylink.vibe_service.domain.interaction.InteractionStatus;
 import com.easylink.easylink.vibe_service.domain.interaction.InteractionType;
 import com.easylink.easylink.vibe_service.domain.model.Vibe;
 import org.springframework.stereotype.Repository;
@@ -47,6 +48,14 @@ public class JpaInteractionRepositoryAdapter implements InteractionRepositoryPor
                 targetVibe,
                 InteractionType.SUBSCRIBE
         );
+    }
+
+    public List<Interaction> findApprovedSubscribersByTarget(Vibe targetVibe) {
+        return delegateRepository.findApprovedSubscribersAlive(targetVibe);
+    }
+
+    public List<Interaction> findPendingSubscribersByTarget(Vibe targetVibe) {
+        return delegateRepository.findPendingSubscribersAlive(targetVibe);
     }
 
     public Optional<Interaction> findAnySubscription(Vibe subscriberVibe, Vibe targetVibe) {
@@ -104,5 +113,27 @@ public class JpaInteractionRepositoryAdapter implements InteractionRepositoryPor
     public List<MiniVibeDto> findFollowingMini(UUID subscriberVibeId, InteractionType type) {
         if (subscriberVibeId == null || type == null) return List.of();
         return delegateRepository.findFollowingMini(subscriberVibeId, type);
+    }
+
+    @Override
+    public boolean existsSubscription(
+            UUID targetVibeId,
+            InteractionType type,
+            InteractionStatus status,
+            List<UUID> subscriberIds
+    ) {
+        if (targetVibeId == null || type == null || status == null) return false;
+        if (subscriberIds == null || subscriberIds.isEmpty()) return false;
+
+        return delegateRepository.existsApprovedSubscription(
+                targetVibeId,
+                type,
+                status,
+                subscriberIds
+        );
+    }
+
+    public Optional<Interaction> findById(UUID id) {
+        return delegateRepository.findById(id);
     }
 }

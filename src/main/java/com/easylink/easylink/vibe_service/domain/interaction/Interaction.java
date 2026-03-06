@@ -34,4 +34,7 @@ public class Interaction {
     private LocalDateTime createdAt;
 
     private boolean active = true;
+
+    @Enumerated(EnumType.STRING)
+    private InteractionStatus status;
 }

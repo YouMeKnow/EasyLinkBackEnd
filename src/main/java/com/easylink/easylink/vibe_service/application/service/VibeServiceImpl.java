@@ -11,6 +11,7 @@ import com.easylink.easylink.vibe_service.application.mapper.VibeDtoMapper;
 import com.easylink.easylink.vibe_service.application.port.in.vibe.*;
 import com.easylink.easylink.vibe_service.application.port.out.VibeFieldRepositoryPort;
 import com.easylink.easylink.vibe_service.application.port.out.VibeRepositoryPort;
+import com.easylink.easylink.vibe_service.domain.interaction.InteractionStatus;
 import com.easylink.easylink.vibe_service.domain.interaction.InteractionType;
 import com.easylink.easylink.vibe_service.domain.model.*;
 import com.easylink.easylink.vibe_service.web.dto.UpdateVibeRequest;
@@ -83,6 +84,8 @@ public class VibeServiceImpl implements CreateVibeUseCase, UpdateVibeUseCase, De
         vibe.setDescription(command.getDescription());
         vibe.setType(command.getType());
         vibe.setPhoto(command.getPhoto());
+        vibe.setPrivacy(VibePrivacy.PUBLIC);
+        vibe.setSubscribeMode(SubscribeMode.OPEN);
 
         vibe.setFields(vibeFieldList);
 
@@ -108,7 +111,7 @@ public class VibeServiceImpl implements CreateVibeUseCase, UpdateVibeUseCase, De
         Vibe vibe = vibeRepositoryPort.findById(updateVibeCommand.getId())
                 .orElseThrow(() -> new RuntimeException("Vibe not found"));
 
-        if (!vibe.getVibeAccountId().equals(updateVibeCommand.getAccountId())){
+        if (!vibe.getVibeAccountId().equals(updateVibeCommand.getAccountId())) {
             throw new SecurityException("Access denied!");
         }
 
@@ -116,15 +119,23 @@ public class VibeServiceImpl implements CreateVibeUseCase, UpdateVibeUseCase, De
         vibe.setDescription(updateVibeCommand.getDescription());
         vibe.setPhoto(request.getPhoto());
 
+        // PRIVACY SETTINGS (MVP)
+        if (request.getPrivacy() != null) {
+            vibe.setPrivacy(request.getPrivacy());
+        }
+        if (request.getSubscribeMode() != null) {
+            vibe.setSubscribeMode(request.getSubscribeMode());
+        }
+
         List<VibeFieldDTO> fields = updateVibeCommand.getFieldsDTO();
         if (fields == null) fields = List.of();
+
         List<VibeField> updatedFields = new java.util.ArrayList<>();
 
         for (VibeFieldDTO dto : fields) {
             VibeField field;
 
             if (dto.getId() == null) {
-
                 switch (dto.getType().toLowerCase()) {
                     case "email" -> {
                         EmailField emailField = new EmailField();
@@ -139,7 +150,6 @@ public class VibeServiceImpl implements CreateVibeUseCase, UpdateVibeUseCase, De
                     default -> field = new LinkField();
                 }
             } else {
-
                 field = vibeFieldRepositoryPort.findById(dto.getId())
                         .orElseThrow(() -> new RuntimeException("Field not found: " + dto.getId()));
             }
@@ -151,7 +161,6 @@ public class VibeServiceImpl implements CreateVibeUseCase, UpdateVibeUseCase, De
 
             updatedFields.add(vibeFieldRepositoryPort.save(field));
         }
-
 
         vibe.getFields().clear();
         vibe.getFields().addAll(updatedFields);
@@ -217,45 +226,95 @@ public class VibeServiceImpl implements CreateVibeUseCase, UpdateVibeUseCase, De
 
     @Override
     public VibeDto getVibeById(UUID id, String viewerAccountId) {
-        // 1) load target vibe (как раньше)
+
+        // Load vibe
         Vibe vibe = vibeRepositoryPort.findActiveById(id)
                 .orElseThrow(() -> new RuntimeException("Vibe not found"));
 
         VibeDto vibeDto = VibeDtoMapper.toDto(vibe);
+        vibeDto.setHasAccess(true);
 
-        // 2) subscriberCount (total active SUBSCRIBE to this target)
+        // Count statistics (ВСЕГДА показываем)
         long subscriberCount = interactionRepositoryPort.countActiveByTarget(
                 id, InteractionType.SUBSCRIBE
         );
         vibeDto.setSubscriberCount(subscriberCount);
 
-        // 3) followingCount (total active SUBSCRIBE made by this vibe)
         long followingCount = interactionRepositoryPort.countActiveBySubscriber(
                 id, InteractionType.SUBSCRIBE
         );
         vibeDto.setFollowingCount(followingCount);
 
-        // 4) subscriberVibes (viewer’s vibes subscribed to this target)
-        if (viewerAccountId == null || viewerAccountId.isBlank()) {
+        // Owner check
+        boolean isOwner = false;
+        UUID viewerUUID = null;
+
+        if (viewerAccountId != null && !viewerAccountId.isBlank()) {
+            try {
+                viewerUUID = UUID.fromString(viewerAccountId);
+                isOwner = vibe.getVibeAccountId().equals(viewerUUID);
+            } catch (Exception ignored) {}
+        }
+
+        vibeDto.setOwner(isOwner);
+
+        // if viewer not logged in -> no subscriberVibes and maybe private
+        if (viewerUUID == null) {
+            if (!isOwner && vibe.getPrivacy() == VibePrivacy.PRIVATE) {
+                // неавторизованным сразу скрываем
+                return buildPrivateDto(vibeDto);
+            }
             vibeDto.setSubscriberVibes(List.of());
             return vibeDto;
         }
 
-        UUID accountId;
-        try {
-            accountId = UUID.fromString(viewerAccountId);
-        } catch (IllegalArgumentException ex) {
+        List<Vibe> myVibes = vibeRepositoryPort.findAllByAccountId(viewerUUID);
+        if (myVibes == null) myVibes = List.of();
+
+        List<UUID> myVibeIds = myVibes.stream()
+                .map(Vibe::getId)
+                .toList();
+
+        // ===== subscription status for viewer (важно даже если доступ закрыт) =====
+        boolean approved = false;
+        boolean pending = false;
+
+        if (!myVibeIds.isEmpty()) {
+            approved = interactionRepositoryPort.existsSubscription(
+                    id,
+                    InteractionType.SUBSCRIBE,
+                    InteractionStatus.APPROVED,
+                    myVibeIds
+            );
+
+            pending = interactionRepositoryPort.existsSubscription(
+                    id,
+                    InteractionType.SUBSCRIBE,
+                    InteractionStatus.PENDING,
+                    myVibeIds
+            );
+        }
+
+        if (approved) {
+            vibeDto.setMySubscriptionStatus(InteractionStatus.APPROVED);
+        } else if (pending) {
+            vibeDto.setMySubscriptionStatus(InteractionStatus.PENDING);
+        } else {
+            vibeDto.setMySubscriptionStatus(null); // трактуй на фронте как NONE
+        }
+
+        // ===== privacy gate =====
+        if (!isOwner && vibe.getPrivacy() == VibePrivacy.PRIVATE) {
+            if (!approved) {
+                return buildPrivateDto(vibeDto); // hasAccess=false, поля скрыты, но mySubscriptionStatus сохранён
+            }
+        }
+
+        // If access allowed → load subscriberVibes normally (только APPROVED, см. query fix)
+        if (myVibeIds.isEmpty()) {
             vibeDto.setSubscriberVibes(List.of());
             return vibeDto;
         }
-
-        List<Vibe> myVibes = vibeRepositoryPort.findAllByAccountId(accountId);
-        if (myVibes == null || myVibes.isEmpty()) {
-            vibeDto.setSubscriberVibes(List.of());
-            return vibeDto;
-        }
-
-        List<UUID> myVibeIds = myVibes.stream().map(Vibe::getId).toList();
 
         List<UUID> subscribedIds = interactionRepositoryPort
                 .findActiveSubscriberVibeIdsForTargetAndSubscriberIn(
@@ -270,7 +329,7 @@ public class VibeServiceImpl implements CreateVibeUseCase, UpdateVibeUseCase, De
         }
 
         List<MiniVibeDto> minis = myVibes.stream()
-                .filter(v -> subscribedIds.stream().anyMatch(x -> x.equals(v.getId())))
+                .filter(v -> subscribedIds.contains(v.getId()))
                 .map(v -> {
                     MiniVibeDto m = new MiniVibeDto();
                     m.setId(v.getId());
@@ -291,5 +350,20 @@ public class VibeServiceImpl implements CreateVibeUseCase, UpdateVibeUseCase, De
                 vibeId,
                 InteractionType.SUBSCRIBE
         );
+    }
+
+    private VibeDto buildPrivateDto(VibeDto dto) {
+
+        dto.setHasAccess(false);
+
+        // оставляем:
+        // name
+        // description
+        // subscriberCount
+        // followingCount
+        dto.setFieldsDTO(List.of());
+        dto.setSubscriberVibes(List.of());
+
+        return dto;
     }
 }

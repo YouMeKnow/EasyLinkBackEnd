@@ -3,6 +3,7 @@ package com.easylink.easylink.vibe_service.application.port.out;
 import com.easylink.easylink.vibe_service.application.dto.InteractionWithOffersDTO;
 import com.easylink.easylink.vibe_service.application.dto.MiniVibeDto;
 import com.easylink.easylink.vibe_service.domain.interaction.Interaction;
+import com.easylink.easylink.vibe_service.domain.interaction.InteractionStatus;
 import com.easylink.easylink.vibe_service.domain.interaction.InteractionType;
 import com.easylink.easylink.vibe_service.domain.model.Vibe;
 import java.util.List;
@@ -25,4 +26,11 @@ public interface InteractionRepositoryPort {
 
     long countActiveBySubscriber(UUID subscriberVibeId, InteractionType type);
     List<MiniVibeDto> findFollowingMini(UUID subscriberVibeId, InteractionType type);
+
+    boolean existsSubscription(
+            UUID targetVibeId,
+            InteractionType type,
+            InteractionStatus status,
+            List<UUID> subscriberIds
+    );
 }
