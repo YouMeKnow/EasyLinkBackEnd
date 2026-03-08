@@ -82,16 +82,15 @@ public class VibeController {
         return ResponseEntity.ok((vibeDtoList.stream().map(VibeResponseMapper::toResponse)).toList());
     }
 
-    @Operation(summary = "Get profile", description = "Get Vibe profile using ID")
+    @Operation(summary = "Get owner profile", description = "Get Vibe profile for owner only")
     @GetMapping("/{id}")
     public ResponseEntity<VibeResponse> getById(
             @PathVariable UUID id,
             @AuthenticationPrincipal Jwt jwt
-    ){
-        String viewerAccountId = (jwt != null ? jwt.getSubject() : null);
-        //      UUID accountId = UUID.fromString(jwt.getSubject());
+    ) {
+        UUID accountId = UUID.fromString(jwt.getSubject());
 
-        VibeDto vibeDto = getVibeByIdUseCase.getVibeById(id, viewerAccountId);
+        VibeDto vibeDto = getVibeByIdUseCase.getOwnedVibeById(id, accountId);
 
         return ResponseEntity.ok(VibeResponseMapper.toResponse(vibeDto));
     }
