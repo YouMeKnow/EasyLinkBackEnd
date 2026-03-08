@@ -45,15 +45,17 @@ public interface SpringDataInteraction extends JpaRepository<Interaction, UUID> 
     List<Object[]> findAllBySubscriberVibeWithOffers(@Param("subscriberVibe") Vibe subscriberVibe);
 
     @Query("""
-        select count(i)
-        from Interaction i
-        join i.targetVibe tv
-        where i.active = true
-          and i.status = com.easylink.easylink.vibe_service.domain.interaction.InteractionStatus.APPROVED
-          and i.interactionType = :type
-          and tv.id = :targetId
-          and tv.deletedAt is null
-    """)
+    select count(i)
+    from Interaction i
+    join i.targetVibe tv
+    join i.subscriberVibe sv
+    where i.active = true
+      and i.status = com.easylink.easylink.vibe_service.domain.interaction.InteractionStatus.APPROVED
+      and i.interactionType = :type
+      and tv.id = :targetId
+      and tv.deletedAt is null
+      and sv.deletedAt is null
+""")
     long countActiveByTarget(@Param("targetId") UUID targetId, @Param("type") InteractionType type);
 
     @Query("""
@@ -90,62 +92,77 @@ public interface SpringDataInteraction extends JpaRepository<Interaction, UUID> 
     List<Interaction> findByTargetVibeAndInteractionTypeAndActiveTrue(Vibe targetVibe, InteractionType type);
 
     @Query("""
-        select i
-        from Interaction i
-        join i.targetVibe tv
-        where i.subscriberVibe = :subscriberVibe
-          and i.active = true
-          and i.interactionType = com.easylink.easylink.vibe_service.domain.interaction.InteractionType.SUBSCRIBE
-          and tv.deletedAt is null
-    """)
+    select i
+    from Interaction i
+    join i.targetVibe tv
+    join i.subscriberVibe sv
+    where sv = :subscriberVibe
+      and i.active = true
+      and i.interactionType = com.easylink.easylink.vibe_service.domain.interaction.InteractionType.SUBSCRIBE
+      and tv.deletedAt is null
+      and sv.deletedAt is null
+""")
     List<Interaction> findActiveFollowingsAlive(@Param("subscriberVibe") Vibe subscriberVibe);
 
     @Query("""
-        select i
-        from Interaction i
-        join i.subscriberVibe sv
-        where i.targetVibe = :targetVibe
-          and i.active = true
-          and i.interactionType = com.easylink.easylink.vibe_service.domain.interaction.InteractionType.SUBSCRIBE
-          and sv.deletedAt is null
-    """)
+    select i
+    from Interaction i
+    join i.subscriberVibe sv
+    join i.targetVibe tv
+    where tv = :targetVibe
+      and i.active = true
+      and i.interactionType = com.easylink.easylink.vibe_service.domain.interaction.InteractionType.SUBSCRIBE
+      and sv.deletedAt is null
+      and tv.deletedAt is null
+""")
     List<Interaction> findActiveSubscribersAlive(@Param("targetVibe") Vibe targetVibe);
 
     @Query("""
-        select count(i)
-        from Interaction i
-        where i.subscriberVibe.id = :subscriberVibeId
-          and i.interactionType = :type
-          and i.active = true
-    """)
+    select count(i)
+    from Interaction i
+    join i.subscriberVibe sv
+    join i.targetVibe tv
+    where sv.id = :subscriberVibeId
+      and i.interactionType = :type
+      and i.active = true
+      and i.status = com.easylink.easylink.vibe_service.domain.interaction.InteractionStatus.APPROVED
+      and sv.deletedAt is null
+      and tv.deletedAt is null
+""")
     long countActiveBySubscriber(@Param("subscriberVibeId") UUID subscriberVibeId,
                                  @Param("type") InteractionType type);
 
     @Query("""
-        select new com.easylink.easylink.vibe_service.application.dto.MiniVibeDto(
-          v.id, v.name, v.type, v.photo
-        )
-        from Interaction i
-        join i.targetVibe v
-        where i.subscriberVibe.id = :subscriberVibeId
-          and i.interactionType = :type
-          and i.active = true
-          and i.status = com.easylink.easylink.vibe_service.domain.interaction.InteractionStatus.APPROVED
-        order by i.createdAt desc
-    """)
-    List<MiniVibeDto> findFollowingMini(UUID subscriberVibeId, InteractionType type);
+    select new com.easylink.easylink.vibe_service.application.dto.MiniVibeDto(
+      v.id, v.name, v.type, v.photo
+    )
+    from Interaction i
+    join i.targetVibe v
+    join i.subscriberVibe sv
+    where sv.id = :subscriberVibeId
+      and i.interactionType = :type
+      and i.active = true
+      and i.status = com.easylink.easylink.vibe_service.domain.interaction.InteractionStatus.APPROVED
+      and sv.deletedAt is null
+      and v.deletedAt is null
+    order by i.createdAt desc
+""")
+    List<MiniVibeDto> findFollowingMini(@Param("subscriberVibeId") UUID subscriberVibeId,
+                                        @Param("type") InteractionType type);
 
     @Query("""
-        select count(i) > 0
-        from Interaction i
-        join i.subscriberVibe sv
-        where i.targetVibe.id = :targetId
-          and i.interactionType = :type
-          and i.active = true
-          and i.status = :status
-          and sv.id in :subscriberIds
-          and sv.deletedAt is null
-    """)
+    select count(i) > 0
+    from Interaction i
+    join i.subscriberVibe sv
+    join i.targetVibe tv
+    where tv.id = :targetId
+      and i.interactionType = :type
+      and i.active = true
+      and i.status = :status
+      and sv.id in :subscriberIds
+      and sv.deletedAt is null
+      and tv.deletedAt is null
+""")
     boolean existsApprovedSubscription(
             @Param("targetId") UUID targetId,
             @Param("type") InteractionType type,
@@ -154,40 +171,46 @@ public interface SpringDataInteraction extends JpaRepository<Interaction, UUID> 
     );
 
     @Query("""
-    select i
-    from Interaction i
-    join i.subscriberVibe sv
-    where i.targetVibe = :targetVibe
-      and i.active = true
-      and i.interactionType = com.easylink.easylink.vibe_service.domain.interaction.InteractionType.SUBSCRIBE
-      and i.status = com.easylink.easylink.vibe_service.domain.interaction.InteractionStatus.APPROVED
-      and sv.deletedAt is null
+select i
+from Interaction i
+join i.subscriberVibe sv
+join i.targetVibe tv
+where tv = :targetVibe
+  and i.active = true
+  and i.interactionType = com.easylink.easylink.vibe_service.domain.interaction.InteractionType.SUBSCRIBE
+  and i.status = com.easylink.easylink.vibe_service.domain.interaction.InteractionStatus.APPROVED
+  and sv.deletedAt is null
+  and tv.deletedAt is null
 """)
     List<Interaction> findApprovedSubscribersAlive(@Param("targetVibe") Vibe targetVibe);
 
     @Query("""
-    select i
-    from Interaction i
-    join i.subscriberVibe sv
-    where i.targetVibe = :targetVibe
-      and i.active = true
-      and i.interactionType = com.easylink.easylink.vibe_service.domain.interaction.InteractionType.SUBSCRIBE
-      and i.status = com.easylink.easylink.vibe_service.domain.interaction.InteractionStatus.PENDING
-      and sv.deletedAt is null
-    order by i.createdAt desc
+select i
+from Interaction i
+join i.subscriberVibe sv
+join i.targetVibe tv
+where tv = :targetVibe
+  and i.active = true
+  and i.interactionType = com.easylink.easylink.vibe_service.domain.interaction.InteractionType.SUBSCRIBE
+  and i.status = com.easylink.easylink.vibe_service.domain.interaction.InteractionStatus.PENDING
+  and sv.deletedAt is null
+  and tv.deletedAt is null
+order by i.createdAt desc
 """)
     List<Interaction> findPendingSubscribersAlive(@Param("targetVibe") Vibe targetVibe);
 
     @Query("""
-    select count(i) > 0
-    from Interaction i
-    join i.subscriberVibe sv
-    where i.targetVibe.id = :targetId
-      and i.interactionType = :type
-      and i.active = true
-      and i.status = :status
-      and sv.id in :subscriberIds
-      and sv.deletedAt is null
+select count(i) > 0
+from Interaction i
+join i.subscriberVibe sv
+join i.targetVibe tv
+where tv.id = :targetId
+  and i.interactionType = :type
+  and i.active = true
+  and i.status = :status
+  and sv.id in :subscriberIds
+  and sv.deletedAt is null
+  and tv.deletedAt is null
 """)
     boolean existsSubscriptionByStatus(
             @Param("targetId") UUID targetId,
