@@ -125,12 +125,17 @@ public class InteractionService implements
                             ? subscriberName + " requested access to your Vibe"
                             : subscriberName + " subscribed to your Vibe";
 
+            String link =
+                    (sub.getStatus() == InteractionStatus.PENDING)
+                            ? "/view/" + targetVibe.getId() + "/network/requests"
+                            : "/view/" + myVibe.getId();
+
             notificationService.create(
                     ownerUserId,
                     notificationType,
                     title,
                     message,
-                    "/view/" + myVibe.getId()
+                    link
             );
 
             return InteractionResponseMapper.toInteractionResponse(
