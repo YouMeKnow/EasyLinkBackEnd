@@ -28,6 +28,9 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-mail'
 	implementation 'org.springframework.boot:spring-boot-starter-actuator'
 
+	// Gemini AI
+	implementation 'com.google.genai:google-genai:1.0.0'
+
 	// Flyway
 	implementation 'org.flywaydb:flyway-core:11.6.0'
 	implementation 'org.flywaydb:flyway-database-postgresql:11.6.0'
