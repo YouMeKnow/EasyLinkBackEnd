@@ -75,3 +75,6 @@ app:
     
 jwt:
   private: ${JWT_PRIVATE:}
+
+gemini:
+  model: gemini-2.0-flash
