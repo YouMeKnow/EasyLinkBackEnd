@@ -31,6 +31,10 @@ dependencies {
 	// Gemini AI
 	implementation 'com.google.genai:google-genai:1.0.0'
 
+	// resilience4j
+	implementation 'org.springframework.boot:spring-boot-starter-aop'
+	implementation("io.github.resilience4j:resilience4j-spring-boot3:2.3.0")
+
 	// Flyway
 	implementation 'org.flywaydb:flyway-core:11.6.0'
 	implementation 'org.flywaydb:flyway-database-postgresql:11.6.0'

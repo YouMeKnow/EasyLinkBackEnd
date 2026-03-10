@@ -21,11 +21,6 @@ public class IntentService {
         try {
             String rawJson = geminiService.detectIntentRaw(userMessage);
 
-            System.out.println("RAW GEMINI RESPONSE: " + rawJson);
-
-            String cleanedJson = cleanJson(rawJson);
-            System.out.println("CLEANED JSON: " + cleanedJson);
-
             JsonNode root = objectMapper.readTree(rawJson);
 
             String intentValue = root.path("intent").asText("UNKNOWN");
@@ -43,26 +38,6 @@ public class IntentService {
         }catch (Exception e){
             return new IntentResult(IntentType.UNKNOWN,"");
         }
-    }
-
-    private String cleanJson(String raw) {
-        if (raw == null) {
-            return "";
-        }
-
-        String cleaned = raw.trim();
-
-        if (cleaned.startsWith("```json")) {
-            cleaned = cleaned.substring(7).trim();
-        } else if (cleaned.startsWith("```")) {
-            cleaned = cleaned.substring(3).trim();
-        }
-
-        if (cleaned.endsWith("```")) {
-            cleaned = cleaned.substring(0, cleaned.length() - 3).trim();
-        }
-
-        return cleaned;
     }
 
 }

@@ -2,6 +2,8 @@ package com.easylink.easylink.ai.service;
 import com.easylink.easylink.ai.provider.AiProvider;
 import com.google.genai.Client;
 import com.google.genai.types.GenerateContentResponse;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.github.resilience4j.retry.annotation.Retry;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -17,15 +19,7 @@ public class GeminiService implements AiProvider {
     }
 
     public String generateReply(String userMessage){
-
-        GenerateContentResponse response = client.models.generateContent(
-                model,
-                userMessage,
-                null
-        );
-
-        return response.text();
-
+        return callGeminiForChat(userMessage);
     }
 
     public String detectIntentRaw(String userMessage){
@@ -61,11 +55,44 @@ public class GeminiService implements AiProvider {
                 
                 """.formatted(userMessage);
 
+        return callGeminiForIntent(prompt);
+    }
+
+    @Retry(name = "geminiRetry", fallbackMethod = "intentFallback")
+    @CircuitBreaker(name = "geminiCircuitBreaker", fallbackMethod = "intentFallback")
+    public String callGeminiForIntent(String prompt) {
         GenerateContentResponse response = client.models.generateContent(
                 model,
                 prompt,
                 null
         );
+
         return response.text();
+    }
+
+    @Retry(name = "geminiRetry", fallbackMethod = "chatFallback")
+    @CircuitBreaker(name = "geminiCircuitBreaker", fallbackMethod = "chatFallback")
+    public String callGeminiForChat(String userMessage) {
+        GenerateContentResponse response = client.models.generateContent(
+                model,
+                userMessage,
+                null
+        );
+
+        return response.text();
+    }
+
+
+    public String intentFallBack(String prompt, Exception e){
+        return """
+                {
+                    "intent": "UNKNOWN",
+                    "category": ""
+                }
+                """;
+    }
+
+    public String chatFallBack(String userMessage, Exception e){
+        return "AI service is temporary unavailable. Please try again later.";
     }
 }

@@ -78,3 +78,24 @@ jwt:
 
 gemini:
   model: gemini-2.0-flash
+
+resilience4j:
+  retry:
+    instances:
+      geminiRetry:
+        max-attempts: 3
+        wait-duration: 2s
+        retry-exceptions:
+          - java.io.IOException
+          - java.net.SocketTimeoutException
+          - java.lang.RuntimeException
+
+  circuitbreaker:
+    instances:
+      geminiCircuitBreaker:
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3

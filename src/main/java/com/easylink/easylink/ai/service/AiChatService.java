@@ -12,10 +12,12 @@ public class AiChatService {
 
     private final AiProvider aiProvider;
     private final IntentService intentService;
+    private final IntentRouter intentRouter;
 
-    public AiChatService(AiProvider aiProvider,IntentService intentService){
+    public AiChatService(AiProvider aiProvider,IntentService intentService,IntentRouter intentRouter){
         this.aiProvider=aiProvider;
         this.intentService=intentService;
+        this.intentRouter=intentRouter;
     }
 
     public AiChatResponse chat(AiChatRequest request) {
@@ -25,9 +27,6 @@ public class AiChatService {
 
         IntentResult intentResult = intentService.detectIntent(request.message());
 
-        String reply = "Detected intent: " + intentResult.intent()
-                + ", category: " + intentResult.category();
-
-        return new AiChatResponse(reply);
+        return intentRouter.route(intentResult, request.message());
     }
 }
