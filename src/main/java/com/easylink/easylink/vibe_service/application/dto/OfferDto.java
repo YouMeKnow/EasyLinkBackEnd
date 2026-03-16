@@ -7,6 +7,8 @@ import lombok.Setter;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
+import java.time.Instant;
+
 @Getter
 @Setter
 public class OfferDto {
@@ -20,6 +22,6 @@ public class OfferDto {
     private int decreaseStep;
     private int decreaseIntervalMinutes;
     private boolean active;
-    private LocalDateTime startTime;
-    private LocalDateTime endTime;
+    private Instant startTime;
+    private Instant endTime;
 }

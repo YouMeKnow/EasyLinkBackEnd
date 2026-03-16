@@ -5,7 +5,7 @@ import jakarta.validation.constraints.*;
 import lombok.Getter;
 import lombok.Setter;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.UUID;
 
 @Getter
@@ -44,14 +44,14 @@ public class CreateOfferRequest {
     private boolean active;
 
     @NotNull(message = "startTime is required")
-    private LocalDateTime startTime;
+    private Instant startTime;
 
     @NotNull(message = "endTime is required")
-    private LocalDateTime endTime;
+    private Instant endTime;
 
     @AssertTrue(message = "endTime must be after startTime")
     public boolean isTimeRangeValid() {
-        if (startTime == null || endTime == null) return true; // @NotNull поймает отдельно
+        if (startTime == null || endTime == null) return true;
         return endTime.isAfter(startTime);
     }
 }

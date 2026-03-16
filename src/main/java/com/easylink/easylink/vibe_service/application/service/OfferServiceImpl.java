@@ -11,17 +11,18 @@ import com.easylink.easylink.vibe_service.domain.interaction.offer.DiscountType;
 import com.easylink.easylink.vibe_service.domain.interaction.offer.Offer;
 import com.easylink.easylink.vibe_service.domain.model.Vibe;
 import com.easylink.easylink.vibe_service.domain.model.VibeType;
-import com.easylink.easylink.vibe_service.infrastructure.exception.OfferUpdateException;
 import com.easylink.easylink.vibe_service.infrastructure.repository.JpaInteractionRepositoryAdapter;
 import com.easylink.easylink.vibe_service.infrastructure.repository.JpaOfferRepositoryAdapter;
 import com.easylink.easylink.vibe_service.web.dto.OfferPatchRequest;
-import org.springframework.security.access.AccessDeniedException;
-import org.springframework.security.oauth2.jwt.Jwt;
 import lombok.RequiredArgsConstructor;
 import org.modelmapper.ModelMapper;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -66,9 +67,12 @@ public class OfferServiceImpl implements CreateOfferUseCase {
 
         offer.setStartTime(createOfferCommand.getStartTime() != null
                 ? createOfferCommand.getStartTime()
-                : LocalDateTime.now());
+                : Instant.now());
 
         offer.setEndTime(createOfferCommand.getEndTime());
+
+        validateTimeRange(offer.getStartTime(), offer.getEndTime());
+        validateDiscounts(offer);
 
         Offer offerSaved = jpaOfferRepositoryAdapter.save(offer);
         rateLimitPort.incrementOffer(key);
@@ -105,22 +109,29 @@ public class OfferServiceImpl implements CreateOfferUseCase {
         return offerDto;
     }
 
-    public List<OfferDto> findAllById(UUID id){
-        Vibe vibe = vibeRepositoryPort.findById(id).orElseThrow(()->new IllegalArgumentException("Vibe not found"));
+    public List<OfferDto> findAllById(UUID id) {
+        Vibe vibe = vibeRepositoryPort.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Vibe not found"));
 
         List<Offer> offerList = jpaOfferRepositoryAdapter.findAllByVibe(vibe);
 
-        List<OfferDto> offerDtoList = offerList.stream().map(offer -> modelMapper.map(offer,OfferDto.class)).toList();
-
-        return offerDtoList;
+        return offerList.stream()
+                .map(offer -> {
+                    OfferDto dto = modelMapper.map(offer, OfferDto.class);
+                    dto.setVibeId(vibe.getId());
+                    return dto;
+                })
+                .toList();
     }
 
-    public OfferDto findOfferById(UUID id){
-
-        Offer offer =jpaOfferRepositoryAdapter.findById(id).orElseThrow(()->new RuntimeException("Offer not found!"));
+    public OfferDto findOfferById(UUID id) {
+        Offer offer = jpaOfferRepositoryAdapter.findById(id)
+                .orElseThrow(() -> new RuntimeException("Offer not found!"));
 
         OfferDto offerDto = modelMapper.map(offer, OfferDto.class);
-
+        if (offer.getVibe() != null) {
+            offerDto.setVibeId(offer.getVibe().getId());
+        }
         return offerDto;
     }
 
@@ -147,8 +158,8 @@ public class OfferServiceImpl implements CreateOfferUseCase {
             if (value instanceof String) return (T) Boolean.valueOf(Boolean.parseBoolean((String) value));
         }
 
-        if (targetType == LocalDateTime.class) {
-            if (value instanceof String) return (T) LocalDateTime.parse((String) value);
+        if (targetType == Instant.class) {
+            if (value instanceof String s) return (T) parseInstant(s);
         }
 
         if (targetType == String.class) return (T) value.toString();
@@ -156,9 +167,21 @@ public class OfferServiceImpl implements CreateOfferUseCase {
         throw new IllegalArgumentException("Unsupported type or incompatible value: " + key + " → " + value);
     }
 
+    private Instant parseInstant(String raw) {
+        try {
+            return Instant.parse(raw);
+        } catch (DateTimeParseException ignored) {
+        }
 
+        try {
+            return OffsetDateTime.parse(raw).toInstant();
+        } catch (DateTimeParseException ignored) {
+        }
 
-    public void updateOfferFields(UUID id, Map<String,Object> updatedFields, Jwt jwt) {
+        throw new IllegalArgumentException("Invalid datetime format: " + raw + ". Expected ISO-8601 with timezone, e.g. 2026-03-15T04:45:00Z");
+    }
+
+    public void updateOfferFields(UUID id, Map<String, Object> updatedFields, Jwt jwt) {
         Offer offer = jpaOfferRepositoryAdapter.findById(id)
                 .orElseThrow(() -> new RuntimeException("Offer not found"));
 
@@ -170,7 +193,7 @@ public class OfferServiceImpl implements CreateOfferUseCase {
         if (meAccount == null || ownerAccount == null || !ownerAccount.equals(meAccount)) {
             throw new AccessDeniedException("Not allowed");
         }
-        
+
         if (updatedFields.containsKey("title")) {
             offer.setTitle(getValue(updatedFields, "title", String.class));
         }
@@ -196,11 +219,14 @@ public class OfferServiceImpl implements CreateOfferUseCase {
             offer.setActive(getValue(updatedFields, "active", Boolean.class));
         }
         if (updatedFields.containsKey("startTime")) {
-            offer.setStartTime(getValue(updatedFields, "startTime", LocalDateTime.class));
+            offer.setStartTime(getValue(updatedFields, "startTime", Instant.class));
         }
         if (updatedFields.containsKey("endTime")) {
-            offer.setEndTime(getValue(updatedFields, "endTime", LocalDateTime.class));
+            offer.setEndTime(getValue(updatedFields, "endTime", Instant.class));
         }
+
+        validateTimeRange(offer.getStartTime(), offer.getEndTime());
+        validateDiscounts(offer);
 
         jpaOfferRepositoryAdapter.save(offer);
     }
@@ -220,7 +246,6 @@ public class OfferServiceImpl implements CreateOfferUseCase {
 
         jpaOfferRepositoryAdapter.delete(offer);
 
-        // rate-limit key MUST be vibeId (как в create)
         String key = offer.getVibe() != null
                 ? offer.getVibe().getId().toString()
                 : null;
@@ -230,11 +255,9 @@ public class OfferServiceImpl implements CreateOfferUseCase {
         }
     }
 
-
     private UUID extractAccountId(Jwt jwt) {
         if (jwt == null) return null;
 
-        // 1) standard JWT subject (account/user id)
         String sub = jwt.getSubject();
         if (sub != null) {
             try {
@@ -243,7 +266,6 @@ public class OfferServiceImpl implements CreateOfferUseCase {
             }
         }
 
-        // 2) common custom claims (fallbacks)
         Object v = jwt.getClaims().get("accountId");
         if (v == null) v = jwt.getClaims().get("userId");
         if (v == null) v = jwt.getClaims().get("vibeAccountId");
@@ -257,6 +279,7 @@ public class OfferServiceImpl implements CreateOfferUseCase {
             return null;
         }
     }
+
     public void updateOffer(UUID id, OfferPatchRequest p, Jwt jwt) {
         Offer offer = jpaOfferRepositoryAdapter.findById(id)
                 .orElseThrow(() -> new RuntimeException("Offer not found"));
@@ -265,7 +288,7 @@ public class OfferServiceImpl implements CreateOfferUseCase {
         UUID ownerAccount = offer.getVibe() != null ? offer.getVibe().getVibeAccountId() : null;
 
         if (meAccount == null || ownerAccount == null || !ownerAccount.equals(meAccount)) {
-            throw new org.springframework.security.access.AccessDeniedException("Not allowed");
+            throw new AccessDeniedException("Not allowed");
         }
 
         if (p.getTitle() != null) {
@@ -299,14 +322,13 @@ public class OfferServiceImpl implements CreateOfferUseCase {
             offer.setEndTime(p.getEndTime());
         }
 
-
         validateTimeRange(offer.getStartTime(), offer.getEndTime());
         validateDiscounts(offer);
 
         jpaOfferRepositoryAdapter.save(offer);
     }
 
-    private void validateTimeRange(LocalDateTime start, LocalDateTime end) {
+    private void validateTimeRange(Instant start, Instant end) {
         if (start == null || end == null) {
             throw new IllegalArgumentException("startTime and endTime are required");
         }

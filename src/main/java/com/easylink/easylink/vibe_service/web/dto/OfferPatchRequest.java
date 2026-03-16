@@ -5,6 +5,7 @@ import jakarta.validation.constraints.*;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 
 @Getter
@@ -33,8 +34,8 @@ public class OfferPatchRequest {
 
     private Boolean active;
 
-    private LocalDateTime startTime;
-    private LocalDateTime endTime;
+    private Instant startTime;
+    private Instant endTime;
 
     @AssertTrue(message = "endTime must be after startTime")
     public boolean isTimeRangeValid() {

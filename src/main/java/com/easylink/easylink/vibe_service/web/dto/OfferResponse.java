@@ -5,6 +5,7 @@ import jdk.jfr.SettingDefinition;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -21,7 +22,7 @@ public class OfferResponse {
     private int decreaseStep;
     private int decreaseIntervalMinutes;
     private boolean active;
-    private LocalDateTime startTime;
-    private LocalDateTime endTime;
+    private Instant startTime;
+    private Instant endTime;
     private boolean canManage;
 }

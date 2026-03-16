@@ -4,6 +4,7 @@ import com.easylink.easylink.vibe_service.domain.interaction.offer.DiscountType;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -19,6 +20,6 @@ public class CreateOfferCommand {
     private int decreaseStep;
     private int decreaseIntervalMinutes;
     private boolean active;
-    private LocalDateTime startTime;
-    private LocalDateTime endTime;
+    private Instant startTime;
+    private Instant endTime;
 }
