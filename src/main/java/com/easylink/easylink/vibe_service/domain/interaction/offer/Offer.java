@@ -10,6 +10,8 @@ import org.hibernate.annotations.UpdateTimestamp;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
+import java.time.Instant;
+
 @Entity
 @Setter
 @Getter
@@ -19,13 +21,13 @@ public class Offer {
     private UUID id;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name= "vibe_id",nullable = false)
+    @JoinColumn(name = "vibe_id", nullable = false)
     private Vibe vibe;
 
     private String title;
     private String description;
 
-    @Enumerated
+    @Enumerated(EnumType.ORDINAL)
     @Column(nullable = false)
     private DiscountType discountType;
 
@@ -34,14 +36,14 @@ public class Offer {
     private int decreaseStep;
     private int decreaseIntervalMinutes;
     private boolean active;
-    private LocalDateTime startTime;
-    private LocalDateTime endTime;
+
+    private Instant startTime;
+    private Instant endTime;
 
     @CreationTimestamp
     @Column(updatable = false)
-    private LocalDateTime createdAt;
+    private Instant createdAt;
 
     @UpdateTimestamp
-    private LocalDateTime updatedAt;
-
+    private Instant updatedAt;
 }
